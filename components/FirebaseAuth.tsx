@@ -1,19 +1,12 @@
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import App from '../App';
 import { auth, db } from '../firebaseConfig';
-// Fix: Use Firebase compat library to align with firebaseConfig.ts and resolve potential version issues.
-import * as firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/firestore';
+import type firebase from 'firebase/compat/app'; // Import for types only
 import { FIREBASE_ENABLED } from '../config';
 
 
-// Fix: Use the User type from the compat library.
-type User = firebase.User;
+// Use a type import to safely get the User type
+type User = firebase.default.User;
 
 type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'unauthorized';
 
@@ -110,12 +103,12 @@ const FirebaseAuth: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
-    // Fix: Use compat provider.
-    const provider = new firebase.auth.GoogleAuthProvider();
+    // Use the global window.firebase object to create the provider
+    const provider = new window.firebase.auth.GoogleAuthProvider();
     setAuthStatus('loading');
     setError(null);
     try {
-      // Fix: Use compat signInWithPopup method from the auth service.
+      // The `auth` service is imported from firebaseConfig and ready to use
       await auth.signInWithPopup(provider);
     } catch (error: any) {
       console.error("Firebase login error:", error);
@@ -144,16 +137,15 @@ const FirebaseAuth: React.FC = () => {
   };
 
   useEffect(() => {
-    // Fix: Use compat onAuthStateChanged method.
+    // The `auth` service is ready to use
     const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
       setAuthStatus('loading');
       
       if (currentUser && currentUser.email) {
         setUser(currentUser);
-        // Fix: Use compat db.doc() method.
+        // The `db` service is ready to use
         const userDocRef = db.doc(`allowed_users/${currentUser.email}`);
         try {
-          // Fix: Use compat .get() method on the document reference.
           const docSnap = await userDocRef.get();
           if (docSnap.exists) {
             setAuthStatus('authenticated');
@@ -170,7 +162,6 @@ const FirebaseAuth: React.FC = () => {
                setError("Erro ao verificar permissões. Tente novamente mais tarde.");
             }
             setAuthStatus('unauthenticated');
-            // Fix: Use compat signOut method.
             await auth.signOut();
         }
       } else {
@@ -186,7 +177,6 @@ const FirebaseAuth: React.FC = () => {
   }, [error]); // Re-run effect if the error state changes, e.g., from unauthorized-domain
 
   const handleLogout = async () => {
-    // Fix: Use compat signOut method.
     await auth.signOut();
     setError(null);
   };

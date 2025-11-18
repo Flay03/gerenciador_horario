@@ -1,17 +1,23 @@
-
-
 import { FIREBASE_ENABLED } from './config';
-// Import the functions you need from the SDKs you need
-// Fix: Use the Firebase compat libraries to resolve module export issues.
-import * as firebase from "firebase/compat/app";
-// Fix: Use ES module 'import' instead of 'require' for side-effect imports in a browser environment.
+import type firebase from 'firebase/compat/app'; // Import for types only
+// Import for side-effects to populate the global `firebase` object
+import "firebase/compat/app";
 import "firebase/compat/auth";
 import "firebase/compat/firestore";
 
-let auth: firebase.auth.Auth | null = null;
-let db: firebase.firestore.Firestore | null = null;
+// Define the global firebase object for TypeScript to recognize window.firebase
+declare global {
+    interface Window {
+        firebase: typeof firebase.default;
+    }
+}
+
+// Infer types from the firebase type import
+let auth: ReturnType<typeof firebase.default.auth> | null = null;
+let db: ReturnType<typeof firebase.default.firestore> | null = null;
 
 if (FIREBASE_ENABLED) {
+    const firebaseApp = window.firebase; // Access the global firebase object
     
     // Your web app's Firebase configuration
     const firebaseConfig = {
@@ -25,12 +31,12 @@ if (FIREBASE_ENABLED) {
     };
 
     // Initialize Firebase
-    if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
+    if (!firebaseApp.apps.length) {
+      firebaseApp.initializeApp(firebaseConfig);
     }
     
-    auth = firebase.auth();
-    db = firebase.firestore();
+    auth = firebaseApp.auth();
+    db = firebaseApp.firestore();
 }
 
 

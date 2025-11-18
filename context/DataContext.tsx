@@ -1,10 +1,7 @@
-
-
 import React, { createContext, useContext, useReducer, useEffect, useCallback, ReactNode, useRef } from 'react';
 import { AppState, Action, GradeSlot, Bncc, PresenceUser, Turma, Alerta, Professor } from '../types';
 import { validateState } from '../services/validationService';
 import { db, auth } from '../firebaseConfig';
-import * as firebase from 'firebase/compat/app';
 import { FIREBASE_ENABLED } from '../config';
 import { LOCAL_STORAGE_KEY } from '../constants';
 
@@ -110,6 +107,13 @@ const sanitizeLoadedState = (loadedState: any): AppState => {
     return newState;
 };
 
+// --- START: Efficient Firestore Update Logic ---
+// This ref will hold a list of pending changes to be sent to Firestore.
+const pendingChangesRef = { current: new Map<string, any>() };
+
+const addChange = (field: keyof AppState, value: any) => {
+    pendingChangesRef.current.set(field, value);
+};
 
 const dataReducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
@@ -122,9 +126,11 @@ const dataReducer = (state: AppState, action: Action): AppState => {
       if (slot) {
         newGrade.push(slot);
       }
+      addChange('grade', newGrade);
       return { ...state, grade: newGrade };
     }
     case 'POPULATE_GRADE': {
+      addChange('grade', action.payload);
       return { ...state, grade: action.payload };
     }
     case 'DELETE_SLOT': {
@@ -133,6 +139,7 @@ const dataReducer = (state: AppState, action: Action): AppState => {
         if (!slotExists) return state; // Nothing to delete
 
         const newGrade = state.grade.filter(s => s.id !== slotId);
+        addChange('grade', newGrade);
         return { ...state, grade: newGrade, selectedSlotId: null };
     }
     case 'SWAP_GRADE_SLOTS': {
@@ -173,86 +180,162 @@ const dataReducer = (state: AppState, action: Action): AppState => {
             remainingGrade.push(newDestSlot);
         }
         
+        addChange('grade', remainingGrade);
         return { ...state, grade: remainingGrade };
     }
     // Cursos
-    case 'ADD_CURSO':
-        return { ...state, cursos: [...state.cursos, action.payload] };
-    case 'UPDATE_CURSO':
-        return { ...state, cursos: state.cursos.map(c => c.id === action.payload.id ? action.payload : c) };
+    case 'ADD_CURSO': {
+        const newCursos = [...state.cursos, action.payload];
+        addChange('cursos', newCursos);
+        return { ...state, cursos: newCursos };
+    }
+    case 'UPDATE_CURSO': {
+        const newCursos = state.cursos.map(c => c.id === action.payload.id ? action.payload : c);
+        addChange('cursos', newCursos);
+        return { ...state, cursos: newCursos };
+    }
     case 'DELETE_CURSO': {
         const turmasToDelete = state.turmas.filter(t => t.cursoId === action.payload.id).map(t => t.id);
         const disciplinasToDelete = state.disciplinas.filter(d => turmasToDelete.includes(d.turmaId)).map(d => d.id);
+        
+        const newCursos = state.cursos.filter(c => c.id !== action.payload.id);
+        const newTurmas = state.turmas.filter(t => t.cursoId !== action.payload.id);
+        const newDisciplinas = state.disciplinas.filter(d => !turmasToDelete.includes(d.turmaId));
+        const newAtribuicoes = state.atribuicoes.filter(a => !disciplinasToDelete.includes(a.disciplinaId));
+        const newGrade = state.grade.filter(g => !turmasToDelete.includes(g.turmaId));
+        
+        addChange('cursos', newCursos);
+        addChange('turmas', newTurmas);
+        addChange('disciplinas', newDisciplinas);
+        addChange('atribuicoes', newAtribuicoes);
+        addChange('grade', newGrade);
+
         return {
             ...state,
-            cursos: state.cursos.filter(c => c.id !== action.payload.id),
-            turmas: state.turmas.filter(t => t.cursoId !== action.payload.id),
-            disciplinas: state.disciplinas.filter(d => !turmasToDelete.includes(d.turmaId)),
-            atribuicoes: state.atribuicoes.filter(a => !disciplinasToDelete.includes(a.disciplinaId)),
-            grade: state.grade.filter(g => !turmasToDelete.includes(g.turmaId)),
+            cursos: newCursos,
+            turmas: newTurmas,
+            disciplinas: newDisciplinas,
+            atribuicoes: newAtribuicoes,
+            grade: newGrade,
         };
     }
     // Turmas
-    case 'ADD_TURMA':
-        return { ...state, turmas: [...state.turmas, action.payload] };
-    case 'UPDATE_TURMA':
-        return { ...state, turmas: state.turmas.map(t => t.id === action.payload.id ? action.payload : t) };
+    case 'ADD_TURMA': {
+        const newTurmas = [...state.turmas, action.payload];
+        addChange('turmas', newTurmas);
+        return { ...state, turmas: newTurmas };
+    }
+    case 'UPDATE_TURMA': {
+        const newTurmas = state.turmas.map(t => t.id === action.payload.id ? action.payload : t);
+        addChange('turmas', newTurmas);
+        return { ...state, turmas: newTurmas };
+    }
     case 'DELETE_TURMA': {
         const disciplinasToDelete = state.disciplinas.filter(d => d.turmaId === action.payload.id).map(d => d.id);
+        
+        const newTurmas = state.turmas.filter(t => t.id !== action.payload.id);
+        const newDisciplinas = state.disciplinas.filter(d => d.turmaId !== action.payload.id);
+        const newAtribuicoes = state.atribuicoes.filter(a => !disciplinasToDelete.includes(a.disciplinaId));
+        const newGrade = state.grade.filter(g => g.turmaId !== action.payload.id);
+        
+        addChange('turmas', newTurmas);
+        addChange('disciplinas', newDisciplinas);
+        addChange('atribuicoes', newAtribuicoes);
+        addChange('grade', newGrade);
+        
         return {
             ...state,
-            turmas: state.turmas.filter(t => t.id !== action.payload.id),
-            disciplinas: state.disciplinas.filter(d => d.turmaId !== action.payload.id),
-            atribuicoes: state.atribuicoes.filter(a => !disciplinasToDelete.includes(a.disciplinaId)),
-            grade: state.grade.filter(g => g.turmaId !== action.payload.id),
+            turmas: newTurmas,
+            disciplinas: newDisciplinas,
+            atribuicoes: newAtribuicoes,
+            grade: newGrade,
         };
     }
     // Disciplinas
-    case 'ADD_DISCIPLINA':
-        return { ...state, disciplinas: [...state.disciplinas, action.payload] };
-    case 'UPDATE_DISCIPLINA':
-        return { ...state, disciplinas: state.disciplinas.map(d => d.id === action.payload.id ? action.payload : d) };
-    case 'DELETE_DISCIPLINA':
+    case 'ADD_DISCIPLINA': {
+        const newDisciplinas = [...state.disciplinas, action.payload];
+        addChange('disciplinas', newDisciplinas);
+        return { ...state, disciplinas: newDisciplinas };
+    }
+    case 'UPDATE_DISCIPLINA': {
+        const newDisciplinas = state.disciplinas.map(d => d.id === action.payload.id ? action.payload : d);
+        addChange('disciplinas', newDisciplinas);
+        return { ...state, disciplinas: newDisciplinas };
+    }
+    case 'DELETE_DISCIPLINA': {
+        const newDisciplinas = state.disciplinas.filter(d => d.id !== action.payload.id);
+        const newAtribuicoes = state.atribuicoes.filter(a => a.disciplinaId !== action.payload.id);
+        const newGrade = state.grade.filter(g => g.disciplinaId !== action.payload.id);
+
+        addChange('disciplinas', newDisciplinas);
+        addChange('atribuicoes', newAtribuicoes);
+        addChange('grade', newGrade);
+
         return {
             ...state,
-            disciplinas: state.disciplinas.filter(d => d.id !== action.payload.id),
-            atribuicoes: state.atribuicoes.filter(a => a.disciplinaId !== action.payload.id),
-            grade: state.grade.filter(g => g.disciplinaId !== action.payload.id),
+            disciplinas: newDisciplinas,
+            atribuicoes: newAtribuicoes,
+            grade: newGrade,
         };
+    }
     // Professores
-    case 'ADD_PROFESSOR':
-        return { ...state, professores: [...state.professores, action.payload] };
-    case 'UPDATE_PROFESSOR':
-        return { ...state, professores: state.professores.map(p => p.id === action.payload.id ? action.payload : p) };
+    case 'ADD_PROFESSOR': {
+        const newProfessores = [...state.professores, action.payload];
+        addChange('professores', newProfessores);
+        return { ...state, professores: newProfessores };
+    }
+    case 'UPDATE_PROFESSOR': {
+        const newProfessores = state.professores.map(p => p.id === action.payload.id ? action.payload : p);
+        addChange('professores', newProfessores);
+        return { ...state, professores: newProfessores };
+    }
     case 'BATCH_UPDATE_PROFESSORS': {
         const updatedProfessorsMap = new Map(action.payload.professors.map(p => [p.id, p]));
         const newProfessors = state.professores.map(p => updatedProfessorsMap.get(p.id) || p);
+        addChange('professores', newProfessors);
         return { ...state, professores: newProfessors };
     }
-    case 'DELETE_PROFESSOR':
-        return {
-            ...state,
-            professores: state.professores.filter(p => p.id !== action.payload.id),
-            atribuicoes: state.atribuicoes.map(a => ({
+    case 'DELETE_PROFESSOR': {
+        const newProfessores = state.professores.filter(p => p.id !== action.payload.id);
+        const newAtribuicoes = state.atribuicoes.map(a => ({
                 ...a,
                 professores: a.professores.filter(pId => pId !== action.payload.id)
-            })),
-            grade: state.grade.filter(g => g.professorId !== action.payload.id),
+            }));
+        const newGrade = state.grade.filter(g => g.professorId !== action.payload.id);
+
+        addChange('professores', newProfessores);
+        addChange('atribuicoes', newAtribuicoes);
+        addChange('grade', newGrade);
+        return {
+            ...state,
+            professores: newProfessores,
+            atribuicoes: newAtribuicoes,
+            grade: newGrade,
         };
+    }
     // Atribuições
     case 'UPDATE_ATRIBUICAO': {
+        let newAtribuicoes;
         const existing = state.atribuicoes.find(a => a.disciplinaId === action.payload.disciplinaId);
         if (existing) {
-            return { ...state, atribuicoes: state.atribuicoes.map(a => a.disciplinaId === action.payload.disciplinaId ? action.payload : a) };
+            newAtribuicoes = state.atribuicoes.map(a => a.disciplinaId === action.payload.disciplinaId ? action.payload : a);
+        } else {
+            newAtribuicoes = [...state.atribuicoes, action.payload];
         }
-        return { ...state, atribuicoes: [...state.atribuicoes, action.payload] };
+        addChange('atribuicoes', newAtribuicoes);
+        return { ...state, atribuicoes: newAtribuicoes };
     }
-    case 'DELETE_ATRIBUICAO':
-        return { ...state, atribuicoes: state.atribuicoes.filter(a => a.disciplinaId !== action.payload.disciplinaId) };
+    case 'DELETE_ATRIBUICAO': {
+        const newAtribuicoes = state.atribuicoes.filter(a => a.disciplinaId !== action.payload.disciplinaId);
+        addChange('atribuicoes', newAtribuicoes);
+        return { ...state, atribuicoes: newAtribuicoes };
+    }
     // General
     case 'UPDATE_ANO':
+        addChange('ano', action.payload);
         return { ...state, ano: action.payload };
     case 'SET_ALERTS':
+      // Alerts are derived state, no need to save.
       return { ...state, alertas: action.payload };
     // Clipboard
     case 'COPY_SLOT': {
@@ -266,6 +349,7 @@ const dataReducer = (state: AppState, action: Action): AppState => {
         const sourceSlot = state.grade.find(s => s.id === sourceSlotId);
         if (!sourceSlot) return state;
         const newGrade = state.grade.filter(s => s.id !== sourceSlotId);
+        addChange('grade', newGrade);
         return { ...state, grade: newGrade, clipboard: { sourceSlot, type: 'cut' }, draggedItem: null, selectedSlotId: null };
     }
     case 'PASTE_SLOT': {
@@ -311,6 +395,7 @@ const dataReducer = (state: AppState, action: Action): AppState => {
         });
         
         const newGrade = [...gradeFiltered, newSlot];
+        addChange('grade', newGrade);
 
         return {
             ...state,
@@ -330,6 +415,9 @@ const dataReducer = (state: AppState, action: Action): AppState => {
             }
             return d;
         });
+        
+        addChange('disciplinas', newDisciplinas);
+        addChange('bncc', [...state.bncc, newBncc]);
 
         return {
             ...state,
@@ -349,10 +437,15 @@ const dataReducer = (state: AppState, action: Action): AppState => {
             return d;
         });
 
+        const newBncc = state.bncc.filter(b => b.id !== bnccId);
+
+        addChange('disciplinas', newDisciplinas);
+        addChange('bncc', newBncc);
+
         return {
             ...state,
             disciplinas: newDisciplinas,
-            bncc: state.bncc.filter(b => b.id !== bnccId)
+            bncc: newBncc
         };
     }
   }
@@ -382,14 +475,12 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
 
 
   if (action.type === 'CLEAR_DATA') {
-    if (FIREBASE_ENABLED && db) {
-        // Set Firestore document to initial state. The listener will handle the update.
-        const { toastMessage, draggedItem, clipboard, selectedSlotId, onlineUsers, saveStatus, ...initialData } = initialState;
-        db.collection('timetables').doc('default').set(initialData);
-    } else {
-        localStorage.removeItem(LOCAL_STORAGE_KEY);
-    }
-
+    // For CLEAR_DATA, we replace all fields, so we can send the entire initial state.
+    const { toastMessage, draggedItem, clipboard, selectedSlotId, onlineUsers, saveStatus, ...initialData } = initialState;
+    Object.keys(initialData).forEach(key => {
+        addChange(key as keyof AppState, (initialData as any)[key]);
+    });
+    
     // Optimistically update local state
     const validatedInitialState = { ...initialState, alertas: validateState(initialState) };
     history = [validatedInitialState];
@@ -402,6 +493,11 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
     if (historyIndex > 0) {
       historyIndex--;
     }
+    // For UNDO, we replace the entire state, so we must add all savable fields to the changeset.
+    const { alertas, toastMessage, draggedItem, clipboard, selectedSlotId, onlineUsers, saveStatus, ...savableState } = history[historyIndex];
+    Object.keys(savableState).forEach(key => {
+        addChange(key as keyof AppState, (savableState as any)[key]);
+    });
     return history[historyIndex];
   }
 
@@ -409,6 +505,10 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
     if (historyIndex < history.length - 1) {
       historyIndex++;
     }
+    const { alertas, toastMessage, draggedItem, clipboard, selectedSlotId, onlineUsers, saveStatus, ...savableState } = history[historyIndex];
+    Object.keys(savableState).forEach(key => {
+        addChange(key as keyof AppState, (savableState as any)[key]);
+    });
     return history[historyIndex];
   }
   
@@ -417,6 +517,11 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
     // On a full state load, we need to immediately validate to show initial alerts
     newState.alertas = validateState(newState);
     newState.saveStatus = 'saved';
+     // For SET_STATE, we also replace the entire state.
+    const { alertas, toastMessage, draggedItem, clipboard, selectedSlotId, onlineUsers, saveStatus, ...savableState } = newState;
+    Object.keys(savableState).forEach(key => {
+        addChange(key as keyof AppState, (savableState as any)[key]);
+    });
   } else {
     newState = dataReducer(state, action);
   }
@@ -443,6 +548,8 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
             nextState.lastModifiedBy = 'Usuário Local';
         }
         nextState.lastModifiedAt = new Date().toISOString();
+        addChange('lastModifiedBy', nextState.lastModifiedBy);
+        addChange('lastModifiedAt', nextState.lastModifiedAt);
     }
 
     if (action.type === 'SET_STATE' || action.type === 'POPULATE_GRADE') {
@@ -493,13 +600,21 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const unsubscribe = docRef.onSnapshot((doc) => {
       hasLoadedFromDB.current = true;
-      // We only update state from server changes, not our own local writes, to prevent loops.
       if (doc.exists && !doc.metadata.hasPendingWrites) {
-        console.log("Received remote update from Firestore.");
-        const dataFromDb = doc.data();
+        const dataFromDb = doc.data() as AppState;
         if (dataFromDb) {
-          isRemoteChange.current = true; // Flag that the next state change is from remote
-          dispatch({ type: 'SET_STATE', payload: dataFromDb as AppState });
+          // Compare timestamps to prevent overwriting newer local state with a stale server echo.
+          const remoteTimestamp = dataFromDb.lastModifiedAt ? new Date(dataFromDb.lastModifiedAt).getTime() : 0;
+          const localTimestamp = state.lastModifiedAt ? new Date(state.lastModifiedAt).getTime() : 0;
+
+          // Only apply the update if the remote data is demonstrably newer.
+          if (remoteTimestamp > localTimestamp) {
+            console.log("Received newer remote update from Firestore. Applying.");
+            isRemoteChange.current = true; // Flag that the next state change is from remote
+            dispatch({ type: 'SET_STATE', payload: dataFromDb });
+          } else {
+             console.log(`Ignored stale remote update. Remote: ${remoteTimestamp}, Local: ${localTimestamp}`);
+          }
         }
       } else if (!doc.exists) {
         // If the document doesn't exist in Firestore, create it with the initial state.
@@ -516,8 +631,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     });
 
-    return () => unsubscribe(); // Cleanup listener on component unmount
-  }, []);
+    return () => unsubscribe();
+  }, [state.lastModifiedAt]); // Dependency ensures the listener closure has the latest timestamp for comparison
 
   // Effect for real-time user presence
   useEffect(() => {
@@ -546,11 +661,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Set initial presence and start heartbeat
         userDocRef.set({
           ...presenceData,
-          lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+          lastSeen: window.firebase.firestore.FieldValue.serverTimestamp()
         });
         
         presenceInterval = window.setInterval(() => {
-          userDocRef.update({ lastSeen: firebase.firestore.FieldValue.serverTimestamp() });
+          userDocRef.update({ lastSeen: window.firebase.firestore.FieldValue.serverTimestamp() });
         }, 15000); // 15 seconds
 
         // Listen for all online users
@@ -580,64 +695,62 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
 
-  // Create a stable, stringified version of the data that should be persisted.
-  const { 
-    alertas,
-    toastMessage, 
-    draggedItem, 
-    clipboard, 
-    selectedSlotId, 
-    onlineUsers,
-    saveStatus,
-    ...dataToSave 
-  } = state;
-  const savableState = JSON.stringify(dataToSave);
-
-
-  // Effect to save state changes
+  // --- NEW: Efficient save effect ---
   useEffect(() => {
-    if (FIREBASE_ENABLED) {
-        // --- Firestore logic ---
-        if (isRemoteChange.current) {
-          isRemoteChange.current = false;
-          dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
-          return;
+    const handler = setTimeout(() => {
+        const changesToSave = pendingChangesRef.current;
+        if (changesToSave.size === 0 || isRemoteChange.current) {
+            if (isRemoteChange.current) {
+                isRemoteChange.current = false;
+            }
+            return; // No local changes to save
         }
-        if (!hasLoadedFromDB.current) {
-            return;
-        }
+        
+        pendingChangesRef.current = new Map(); // Clear pending changes immediately
         dispatch({ type: 'SET_SAVE_STATUS', payload: 'saving' });
-        const handler = setTimeout(() => {
-          if (!db) return; // Type guard for db being null
-          const parsedData = JSON.parse(savableState);
-          db.collection('timetables').doc('default').set(parsedData, { merge: true })
-              .then(() => {
-                  dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
-              })
-              .catch(error => {
-                  console.error("Error writing to Firestore: ", error);
-                  dispatch({ type: 'SHOW_TOAST', payload: 'Falha ao salvar dados.' });
-                  dispatch({ type: 'SET_SAVE_STATUS', payload: 'error' });
-              });
-        }, 1000); // Debounce for 1 second
-        return () => clearTimeout(handler);
-
-    } else {
-        // --- LocalStorage logic ---
-        dispatch({ type: 'SET_SAVE_STATUS', payload: 'saving' });
-        const handler = setTimeout(() => {
+        
+        if (FIREBASE_ENABLED && db && hasLoadedFromDB.current) {
+            const batch = db.batch();
+            const docRef = db.collection('timetables').doc('default');
+            
+            const updates: { [key: string]: any } = {};
+            changesToSave.forEach((value, key) => {
+                updates[key] = value;
+            });
+            
+            batch.update(docRef, updates);
+            
+            batch.commit()
+                .then(() => {
+                    dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
+                })
+                .catch(error => {
+                    console.error("Error committing batch to Firestore: ", error);
+                    dispatch({ type: 'SHOW_TOAST', payload: 'Falha ao salvar dados.' });
+                    dispatch({ type: 'SET_SAVE_STATUS', payload: 'error' });
+                });
+        } else if (!FIREBASE_ENABLED) {
             try {
-                localStorage.setItem(LOCAL_STORAGE_KEY, savableState);
+                const currentData = localStorage.getItem(LOCAL_STORAGE_KEY);
+                const parsedData = currentData ? JSON.parse(currentData) : {};
+                
+                changesToSave.forEach((value, key) => {
+                    parsedData[key] = value;
+                });
+                
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(parsedData));
                 dispatch({ type: 'SET_SAVE_STATUS', payload: 'saved' });
             } catch (error) {
                 console.error("Error writing to localStorage: ", error);
                 dispatch({ type: 'SHOW_TOAST', payload: 'Falha ao salvar dados localmente.' });
                 dispatch({ type: 'SET_SAVE_STATUS', payload: 'error' });
             }
-        }, 1000);
-        return () => clearTimeout(handler);
-    }
-  }, [savableState]);
+        }
+    }, 1000); // Debounce for 1 second
+
+    return () => clearTimeout(handler);
+  }, [state]); // Effect runs on any state change to check for pending updates.
+
   
   // Create a stable dependency for the validation effect
   const validationDeps = JSON.stringify({

@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import FirebaseAuth from './components/FirebaseAuth'; // Use the authentication component
+import './styles.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
