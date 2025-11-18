@@ -1,38 +1,62 @@
-
-import React, { useState } from 'react';
-import { DataProvider, useData } from './context/DataContext';
+import React, { useState, Suspense, lazy, useEffect } from 'react';
+import { DataProvider } from './context/DataContext';
+import { UIProvider, useUI } from './context/UIContext';
+import { GridProvider } from './context/GridContext';
 import TimetableGrid from './components/TimetableGrid/TimetableGrid';
 import Sidebar from './components/Sidebar/Sidebar';
 import Toolbar from './components/Toolbar';
 import AlertLegend from './components/AlertLegend';
-import ManagementPage from './pages/ManagementPage';
-import ProfessorViewPage from './pages/ProfessorViewPage';
-import DashboardPage from './pages/DashboardPage'; // Import new dashboard page
 import Toast from './components/Toast';
 import ClearDataModal from './components/ClearDataModal';
 import LoadExampleModal from './components/LoadExampleModal';
 import { GridType } from './types';
-import ErrorBoundary from './components/ErrorBoundary';
+import LoadingSpinner from './components/LoadingSpinner';
+
+const ManagementPage = lazy(() => import('./pages/ManagementPage'));
+const ProfessorViewPage = lazy(() => import('./pages/ProfessorViewPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 
 export type View = 'dashboard' | 'grid' | 'management' | 'professor';
 
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center h-full">
+    <LoadingSpinner size={48} />
+  </div>
+);
+
 const AppUI: React.FC = () => {
-  const [currentView, setCurrentView] = useState<View>('grid');
-  const [activeGrid, setActiveGrid] = useState<GridType>('regular');
-  const [isFocusModeEnabled, setIsFocusModeEnabled] = useState(false); // Default is off
+  const [currentView, setCurrentView] = useState<View>(() => {
+    return (localStorage.getItem('app_lastView') as View) || 'grid';
+  });
+  const [activeGrid, setActiveGrid] = useState<GridType>(() => {
+    return (localStorage.getItem('app_lastGridType') as GridType) || 'regular';
+  });
+  
+  const [isFocusModeEnabled, setIsFocusModeEnabled] = useState(false);
   const [isClearDataModalOpen, setIsClearDataModalOpen] = useState(false);
   const [isLoadExampleModalOpen, setIsLoadExampleModalOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const { state, dispatch } = useData();
+  
+  const { state: uiState, dispatch: uiDispatch } = useUI();
+
+  useEffect(() => {
+    localStorage.setItem('app_lastView', currentView);
+  }, [currentView]);
+
+  useEffect(() => {
+    localStorage.setItem('app_lastGridType', activeGrid);
+  }, [activeGrid]);
 
   const renderMainContent = () => {
     switch(currentView) {
       case 'dashboard':
-        return <DashboardPage />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <DashboardPage />
+          </Suspense>
+        );
       case 'grid':
         return (
           <div className="flex flex-col flex-1 overflow-hidden">
-            {/* Grid type tabs */}
             <div className="flex-shrink-0 px-4 pt-2 border-b border-gray-200 bg-gray-50">
               <nav className="flex space-x-2" aria-label="Tabs">
                 <button
@@ -53,7 +77,6 @@ const AppUI: React.FC = () => {
                 </button>
               </nav>
             </div>
-            {/* Grid and Sidebar container */}
             <div className="flex flex-1 overflow-hidden">
               <div className="flex-1 flex flex-col overflow-auto">
                 <TimetableGrid isFocusModeEnabled={isFocusModeEnabled} gridType={activeGrid} />
@@ -61,8 +84,8 @@ const AppUI: React.FC = () => {
                   <AlertLegend />
                 </footer>
               </div>
-              <aside className={`bg-gray-50 border-l border-gray-200 overflow-y-auto flex-shrink-0 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'w-0' : 'w-64 lg:w-80'}`}>
-                 <div className={`h-full overflow-hidden ${isSidebarCollapsed ? 'invisible' : 'visible'}`}>
+              <aside className={`bg-gray-50 border-l border-gray-200 overflow-y-auto flex-shrink-0 transition-all duration-300 ease-in-out ${uiState.isSidebarCollapsed ? 'w-0' : 'w-64 lg:w-80'}`}>
+                 <div className={`h-full overflow-hidden ${uiState.isSidebarCollapsed ? 'invisible' : 'visible'}`}>
                   <Sidebar gridType={activeGrid} />
                 </div>
               </aside>
@@ -70,9 +93,17 @@ const AppUI: React.FC = () => {
           </div>
         );
       case 'management':
-        return <ManagementPage />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <ManagementPage />
+          </Suspense>
+        );
       case 'professor':
-        return <ProfessorViewPage />;
+        return (
+          <Suspense fallback={<LoadingFallback />}>
+            <ProfessorViewPage />
+          </Suspense>
+        );
       default:
         return null;
     }
@@ -92,18 +123,17 @@ const AppUI: React.FC = () => {
         />
       </header>
       <main className="flex flex-1 overflow-hidden relative">
-        <ErrorBoundary>
-          {renderMainContent()}
-        </ErrorBoundary>
+        {renderMainContent()}
         {currentView === 'grid' && (
           <button
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            onClick={() => uiDispatch({ type: 'TOGGLE_SIDEBAR' })}
             className={`absolute top-1/2 -translate-y-1/2 z-30 bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 rounded-full w-8 h-8 flex items-center justify-center shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all duration-300 ease-in-out ${
-              isSidebarCollapsed ? 'right-0 translate-x-1/2' : 'right-[16rem] lg:right-[20rem] translate-x-1/2'
+              uiState.isSidebarCollapsed ? 'right-0 translate-x-1/2' : 'right-[16rem] lg:right-[20rem] translate-x-1/2'
             }`}
-            title={isSidebarCollapsed ? 'Expandir painel' : 'Recolher painel'}
+            title={uiState.isSidebarCollapsed ? 'Expandir painel' : 'Recolher painel'}
+            aria-label={uiState.isSidebarCollapsed ? 'Expandir painel lateral' : 'Recolher painel lateral'}
           >
-            {isSidebarCollapsed ? (
+            {uiState.isSidebarCollapsed ? (
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
@@ -115,10 +145,10 @@ const AppUI: React.FC = () => {
           </button>
         )}
       </main>
-      {state.toastMessage && (
+      {uiState.toastMessage && (
         <Toast 
-          message={state.toastMessage}
-          onClose={() => dispatch({ type: 'SHOW_TOAST', payload: null })}
+          message={uiState.toastMessage}
+          onClose={() => uiDispatch({ type: 'SHOW_TOAST', payload: null })}
         />
       )}
        <ClearDataModal
@@ -136,9 +166,13 @@ const AppUI: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <DataProvider>
-      <AppUI />
-    </DataProvider>
+    <UIProvider>
+      <GridProvider>
+        <DataProvider>
+          <AppUI />
+        </DataProvider>
+      </GridProvider>
+    </UIProvider>
   );
 };
 

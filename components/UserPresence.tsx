@@ -1,20 +1,17 @@
-
-
 import React from 'react';
-import { useData } from '../context/DataContext';
+import { useUI } from '../context/UIContext';
 import { stringToColor } from '../utils/color';
 import { auth } from '../firebaseConfig';
 
 const UserPresence: React.FC = () => {
-  const { state } = useData();
+  const { state } = useUI();
   const { onlineUsers } = state;
 
   if (onlineUsers.length === 0) {
     return null;
   }
 
-  // Get the current user to display their avatar last (on top)
-  const currentUser = auth.currentUser;
+  const currentUser = auth?.currentUser;
   
   const sortedUsers = [...onlineUsers].sort((a, b) => {
     if (a.id === currentUser?.uid) return 1;
@@ -35,7 +32,6 @@ const UserPresence: React.FC = () => {
           >
             {user.id === currentUser?.uid ? 'VC' : user.name.charAt(0).toUpperCase()}
           </div>
-          {/* Tooltip */}
           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
             {user.id === currentUser?.uid ? `${user.name} (Você)` : user.name}
             <svg className="absolute text-gray-800 h-2 w-full left-0 top-full" x="0px" y="0px" viewBox="0 0 255 255">

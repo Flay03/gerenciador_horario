@@ -1,12 +1,12 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
+import { useGrid } from '../../context/GridContext';
+import { useUI } from '../../context/UIContext';
 import { DIAS_SEMANA, HORARIOS_MANHA, HORARIOS_TARDE, HORARIOS_NOITE_REGULAR, HORARIOS_NOITE_MODULAR } from '../../constants';
 import GridCell from './GridCell';
 import VisibilityControl, { VisibilityState } from './VisibilityControl';
-import { Periodo, GridType, GradeSlot, Alerta } from '../../types';
+import { GridType, Alerta, GradeSlot } from '../../types';
 import { timeToMinutes } from '../../services/validationService';
-
 
 export interface ContextMenuItem {
   label: string;
@@ -75,24 +75,58 @@ interface TimetableGridProps {
 }
 
 const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridType }) => {
-  const { state, dispatch } = useData();
-  const { ano, cursos, turmas: allTurmas, grade, clipboard, selectedSlotId, disciplinas, professores, draggedItem, atribuicoes, alertas } = state;
-  const [zoom, setZoom] = useState(1);
+  const { state: dataState, dispatch: dataDispatch } = useData();
+  const { state: gridState, dispatch: gridDispatch } = useGrid();
+  const { dispatch: uiDispatch } = useUI();
+
+  const { ano, cursos, turmas: allTurmas, grade, disciplinas, professores, atribuicoes, alertas } = dataState;
+  const { clipboard, selectedSlotId, draggedItem } = gridState;
+  
+  const [zoom, setZoom] = useState(() => {
+    const savedZoom = localStorage.getItem('grid_zoom');
+    return savedZoom ? parseFloat(savedZoom) : 1;
+  });
+
+  const [visibility, setVisibility] = useState<VisibilityState>(() => {
+      const savedVisibility = localStorage.getItem('grid_visibility');
+      if (savedVisibility) {
+          try {
+              const parsed = JSON.parse(savedVisibility);
+              return {
+                  periods: parsed.periods || { manha: true, tarde: true, noite: true },
+                  cursos: {},
+                  turmas: {}
+              };
+          } catch (e) {
+              console.error("Error parsing saved visibility", e);
+          }
+      }
+      return {
+        periods: { manha: true, tarde: true, noite: true },
+        cursos: {},
+        turmas: {},
+      };
+  });
+
   const [contextMenu, setContextMenu] = useState({ isOpen: false, x: 0, y: 0, slotId: '' });
   const [hoveredProfessorId, setHoveredProfessorId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isEditingYear, setIsEditingYear] = useState(false);
   const [yearInput, setYearInput] = useState(ano.toString());
 
+  useEffect(() => {
+    localStorage.setItem('grid_zoom', zoom.toString());
+  }, [zoom]);
+
   const scaledDimensions = useMemo(() => {
     return {
       dayColWidth: 50 * zoom,
       timeColWidth: 80 * zoom,
       turmaColWidth: 150 * zoom,
-      headerHeight: 44 * zoom, // from h-11 tailwind class
+      headerHeight: 44 * zoom,
       cellMinHeight: 60 * zoom,
-      daySeparatorHeight: 8 * zoom, // from h-2
-      periodSeparatorHeight: 8 * zoom, // from h-2
+      daySeparatorHeight: 8 * zoom,
+      periodSeparatorHeight: 8 * zoom,
       fontSizeHeader: 12 * zoom,
       fontSizeTurmaHeader: 11 * zoom,
       fontSizeTime: 12 * zoom,
@@ -104,7 +138,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
 
   const turmas = useMemo(() => {
     const filtered = allTurmas.filter(t => t.isModular === (gridType === 'modular'));
-    // Sort by course name, then turma name for consistent ordering
     return filtered.sort((a, b) => {
       const cursoA = cursos.find(c => c.id === a.cursoId)?.nome || '';
       const cursoB = cursos.find(c => c.id === b.cursoId)?.nome || '';
@@ -121,31 +154,23 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
 
   const handleYearSave = () => {
     const newYear = parseInt(yearInput, 10);
-    // Basic validation for a reasonable year range
     if (!isNaN(newYear) && newYear > 2000 && newYear < 2100) {
-      dispatch({ type: 'UPDATE_ANO', payload: newYear });
+      dataDispatch({ type: 'UPDATE_ANO', payload: newYear });
     } else {
-      setYearInput(ano.toString()); // Reset to original if invalid
-      dispatch({ type: 'SHOW_TOAST', payload: 'Ano inválido.' });
+      setYearInput(ano.toString());
+      uiDispatch({ type: 'SHOW_TOAST', payload: 'Ano inválido.' });
     }
     setIsEditingYear(false);
   };
 
   const handleYearKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      e.currentTarget.blur(); // Triggers onBlur which saves
+      e.currentTarget.blur();
     } else if (e.key === 'Escape') {
       setYearInput(ano.toString());
       setIsEditingYear(false);
     }
   };
-
-
-  const [visibility, setVisibility] = useState<VisibilityState>({
-    periods: { manha: true, tarde: true, noite: true },
-    cursos: {},
-    turmas: {},
-  });
 
   useEffect(() => {
     setVisibility(prev => {
@@ -161,6 +186,12 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
     });
   }, [cursos, turmas]);
 
+  const handleVisibilityChange = (newVisibility: VisibilityState) => {
+      setVisibility(newVisibility);
+      const toSave = { periods: newVisibility.periods };
+      localStorage.setItem('grid_visibility', JSON.stringify(toSave));
+  };
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.target !== document.body) return;
     
@@ -168,10 +199,12 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
       if (e.ctrlKey) {
           if (e.key === 'c') {
               e.preventDefault();
-              dispatch({ type: 'COPY_SLOT', payload: { sourceSlotId: selectedSlotId } });
+              const slot = grade.find(s => s.id === selectedSlotId);
+              if (slot) gridDispatch({ type: 'COPY_SLOT', payload: { sourceSlot: slot } });
           } else if (e.key === 'x') {
               e.preventDefault();
-              dispatch({ type: 'CUT_SLOT', payload: { sourceSlotId: selectedSlotId } });
+              const slot = grade.find(s => s.id === selectedSlotId);
+              if (slot) gridDispatch({ type: 'CUT_SLOT', payload: { sourceSlot: slot } });
           } else if (e.key === 'v') {
               e.preventDefault();
               if (clipboard) {
@@ -180,18 +213,19 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
                   const destTurma = allTurmas.find(t => t.id === destTurmaId);
                   
                   if (sourceTurma && destTurma && sourceTurma.isModular !== destTurma.isModular) {
-                      dispatch({ type: 'SHOW_TOAST', payload: 'Não é permitido colar aulas entre a grade regular e a modular.' });
-                      return; // Block the paste
+                      uiDispatch({ type: 'SHOW_TOAST', payload: 'Não é permitido colar aulas entre a grade regular e a modular.' });
+                      return;
                   }
+                  dataDispatch({ type: 'PASTE_SLOT', payload: { destinationId: selectedSlotId, sourceSlot: clipboard.sourceSlot, isCut: clipboard.type === 'cut' } });
+                  gridDispatch({ type: 'PASTE_SLOT', payload: { isCut: clipboard.type === 'cut' } });
               }
-              dispatch({ type: 'PASTE_SLOT', payload: { destinationId: selectedSlotId } });
           }
       } else if (e.key === 'Delete') {
           e.preventDefault();
-          dispatch({ type: 'DELETE_SLOT', payload: { slotId: selectedSlotId } });
+          dataDispatch({ type: 'DELETE_SLOT', payload: { slotId: selectedSlotId } });
       }
     }
-  }, [selectedSlotId, dispatch, clipboard, allTurmas]);
+  }, [selectedSlotId, dataDispatch, gridDispatch, clipboard, allTurmas, grade, uiDispatch]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -227,15 +261,12 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
 
     const rect = container.getBoundingClientRect();
     const y = e.clientY - rect.top;
-
-    const scrollThreshold = 60; // Pixels from the edge to trigger scroll
-    const scrollSpeed = 10;     // How fast to scroll
+    const scrollThreshold = 60;
+    const scrollSpeed = 10;
 
     if (y < scrollThreshold) {
-      // Scroll up
       container.scrollTop -= scrollSpeed;
     } else if (y > rect.height - scrollThreshold) {
-      // Scroll down
       container.scrollTop += scrollSpeed;
     }
   };
@@ -244,42 +275,54 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
     setContextMenu({ ...contextMenu, isOpen: false });
   };
 
-  const handleOpenContextMenu = (e: React.MouseEvent, slotId: string) => {
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, slotId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    dispatch({ type: 'SELECT_SLOT', payload: { slotId } });
+    gridDispatch({ type: 'SELECT_SLOT', payload: { slotId } });
     setContextMenu({ isOpen: true, x: e.pageX, y: e.pageY, slotId });
-  };
+  }, [gridDispatch]);
   
   const getContextMenuItems = (): ContextMenuItem[] => {
     const { slotId } = contextMenu;
     if (!slotId) return [];
 
-    const isOccupied = grade.some(s => s.id === slotId);
+    const slot = grade.find(s => s.id === slotId);
+    const isOccupied = !!slot;
     const canPaste = !!clipboard;
 
     const copyItem: ContextMenuItem = {
         label: 'Copiar',
-        onClick: () => dispatch({ type: 'COPY_SLOT', payload: { sourceSlotId: slotId } }),
+        onClick: () => slot && gridDispatch({ type: 'COPY_SLOT', payload: { sourceSlot: slot } }),
         disabled: !isOccupied
     };
     const cutItem: ContextMenuItem = {
         label: 'Recortar',
-        onClick: () => dispatch({ type: 'CUT_SLOT', payload: { sourceSlotId: slotId } }),
+        onClick: () => slot && gridDispatch({ type: 'CUT_SLOT', payload: { sourceSlot: slot } }),
         disabled: !isOccupied
     };
     const pasteItem: ContextMenuItem = {
         label: 'Colar',
-        onClick: () => dispatch({ type: 'PASTE_SLOT', payload: { destinationId: slotId } }),
+        onClick: () => {
+           if (clipboard) {
+               dataDispatch({ type: 'PASTE_SLOT', payload: { destinationId: slotId, sourceSlot: clipboard.sourceSlot, isCut: clipboard.type === 'cut' } });
+               gridDispatch({ type: 'PASTE_SLOT', payload: { isCut: clipboard.type === 'cut' } });
+           }
+        },
         disabled: !canPaste
     };
 
     return [copyItem, cutItem, pasteItem];
   };
 
-  const handleSelectSlot = (slotId: string | null) => {
-      dispatch({ type: 'SELECT_SLOT', payload: { slotId } });
-  }
+  const handleSelectSlot = useCallback((slotId: string | null) => {
+      gridDispatch({ type: 'SELECT_SLOT', payload: { slotId } });
+  }, [gridDispatch]);
+
+  const handleProfessorHover = useCallback((professorId: string | null) => {
+      if(isFocusModeEnabled) setHoveredProfessorId(professorId);
+  }, [isFocusModeEnabled]);
+
+  const noOp = useCallback(() => {}, []);
 
   const horariosNoite = useMemo(() => {
     return gridType === 'modular' ? HORARIOS_NOITE_MODULAR : HORARIOS_NOITE_REGULAR;
@@ -303,7 +346,7 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
   const turmasByCurso = sortedCursos
     .map(curso => ({
       ...curso,
-      turmas: turmas.filter(t => t.cursoId === curso.id) // turmas is already sorted
+      turmas: turmas.filter(t => t.cursoId === curso.id)
     }))
     .filter(curso => visibility.cursos[curso.id]);
 
@@ -318,7 +361,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
     return ids;
   }, [visibleTurmas]);
     
-  // --- Performance Optimizations: Memoized Maps for fast lookups ---
   const gradeMap = useMemo(() => {
     const map = new Map<string, GradeSlot[]>();
     grade.forEach(slot => {
@@ -345,7 +387,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
   }, [alertas]);
 
   const validMoveHighlights = useMemo(() => {
-    // 1. Determine the source of the drag/selection
     let sourceInfo: { professorId: string; disciplinaId: string; slotIdToIgnore: string | null } | null = null;
     
     if (draggedItem?.type === 'SIDEBAR_ITEM' && draggedItem.disciplinaId && draggedItem.professorId) {
@@ -510,7 +551,7 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
     >
       <VisibilityControl 
         visibility={visibility}
-        onVisibilityChange={setVisibility}
+        onVisibilityChange={handleVisibilityChange}
         cursos={cursos}
         turmas={turmas}
       />
@@ -521,7 +562,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
         onMouseLeave={() => setHoveredProfessorId(null)}
       >
         <div className="relative grid" style={{ gridTemplateColumns: `${scaledDimensions.dayColWidth}px ${scaledDimensions.timeColWidth}px repeat(${visibleTurmas.length}, ${scaledDimensions.turmaColWidth}px)` }}>
-          {/* Top-left corner */}
           <div
             className="sticky top-0 left-0 z-40 bg-slate-200 border-b-2 border-r border-slate-300 flex items-center justify-center p-1"
             style={{gridColumn: '1 / span 2', gridRow: '1 / span 2'}}
@@ -549,7 +589,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
             )}
           </div>
           
-          {/* Course Headers */}
           {turmasByCurso.map(curso => {
             const visibleTurmasForCurso = curso.turmas.filter(t => visibility.turmas[t.id]);
             if (visibleTurmasForCurso.length === 0) return null;
@@ -572,7 +611,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
             );
           })}
           
-          {/* Turma Headers */}
           {visibleTurmas.map((turma, index) => (
             <div key={turma.id} className={`sticky z-20 bg-slate-100 text-slate-600 flex items-center justify-center font-semibold p-2 border-b border-slate-300 ${lastTurmaOfCourseIds.has(turma.id) ? 'border-r-2 border-r-slate-400' : 'border-r border-slate-300'}`} style={{
                 gridColumn: index + 3,
@@ -584,7 +622,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
             </div>
           ))}
 
-          {/* Day, Time, and Grid Cells */}
           {DIAS_SEMANA.map((dia, diaIndex) => {
             if (visibleHorarios.length === 0) return null;
 
@@ -608,11 +645,9 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
                 const timeHeaderClasses = `sticky z-20 bg-slate-50 p-1 text-center border-r border-slate-300 flex items-center justify-center ${borderClass}`;
 
                 const rowElements = [
-                    // Time Header Column
                     <div key={`${dia}_${horario}_time`} className={timeHeaderClasses} style={{ left: `${scaledDimensions.dayColWidth}px`, fontSize: `${scaledDimensions.fontSizeTime}px` }}>
                         {horario}
                     </div>,
-                    // Grid Cells for this row
                     ...visibleTurmas.map(turma => {
                         const id = `${turma.id}_${dia}_${horario}`;
                         const slotsInCell = gradeMap.get(id) || [];
@@ -632,7 +667,7 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
                                 onSelectSlot={handleSelectSlot} 
                                 selectedSlotId={selectedSlotId || null}
                                 hoveredProfessorId={isFocusModeEnabled ? hoveredProfessorId : null}
-                                onProfessorHover={isFocusModeEnabled ? setHoveredProfessorId : () => {}}
+                                onProfessorHover={isFocusModeEnabled ? handleProfessorHover : noOp}
                                 highlightStatus={validMoveHighlights[id] || null}
                                 cellAlerts={cellAlertsMap.get(id) || []}
                                 subCellAlerts0={cellAlertsMap.get(`${id}-0`) || []}
@@ -665,7 +700,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
 
             return (
               <React.Fragment key={dia}>
-                  {/* Day Header Column: Spans content rows */}
                   <div
                       className={`sticky left-0 z-30 bg-slate-200 py-2 text-center font-semibold border-r-2 border-slate-300 flex items-center justify-center capitalize [writing-mode:vertical-rl] rotate-180`}
                       style={{ gridRow: `span ${dayContentRows}`, fontSize: `${scaledDimensions.fontSizeHeader}px` }}
@@ -677,7 +711,6 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
                     {dayTimeSlotsAndSeparators}
                   </div>
                   
-                  {/* Day Separator Row */}
                   {!isLastDay && (
                     <React.Fragment>
                       <div

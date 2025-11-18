@@ -1,12 +1,10 @@
-
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../context/DataContext';
 import ProfessorTimetable from '../components/ProfessorView/ProfessorTimetable';
 import JSZip from 'jszip';
 import { exportProfessorTimetableToXLSX } from '../services/exportService';
 import { generatePdfForProfessor } from '../services/pdfExportService';
-
+import ProgressBar from '../components/ProgressBar';
 
 const ProfessorViewPage: React.FC = () => {
     const { state, dispatch } = useData();
@@ -168,7 +166,7 @@ const ProfessorViewPage: React.FC = () => {
             <header className="mb-4">
                 <h1 className="text-2xl font-bold text-gray-800">Grade por Professor</h1>
                 <div className="mt-2 flex flex-col sm:flex-row sm:items-end sm:justify-between">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-grow mr-4">
                         <div>
                             <label htmlFor="professor-search" className="block text-sm font-medium text-gray-700">
                                 Buscar Professor
@@ -203,16 +201,25 @@ const ProfessorViewPage: React.FC = () => {
                         </div>
                     </div>
                     <div className="mt-4 sm:mt-0 flex flex-col sm:flex-row gap-2">
-                        <button
-                            onClick={handleBatchExportPDF}
-                            disabled={isBatchExporting}
-                            className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        >
-                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                            </svg>
-                            {isBatchExporting ? `Gerando ${exportProgress.current}/${exportProgress.total}...` : 'Exportar Todos (ZIP)'}
-                        </button>
+                         {isBatchExporting ? (
+                            <div className="w-48">
+                                <ProgressBar 
+                                    progress={(exportProgress.current / exportProgress.total) * 100} 
+                                    label="Exportando..." 
+                                />
+                            </div>
+                         ) : (
+                            <button
+                                onClick={handleBatchExportPDF}
+                                className="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                </svg>
+                                Exportar Todos (ZIP)
+                            </button>
+                         )}
+                        
                         <button
                             onClick={handleExportProfessorXLSX}
                             disabled={!selectedProfessorId || isBatchExporting}
@@ -225,7 +232,7 @@ const ProfessorViewPage: React.FC = () => {
                                 <line x1="16" y1="17" x2="8" y2="17"></line>
                                 <polyline points="10 9 9 9 8 9"></polyline>
                             </svg>
-                            Exportar Selecionado (XLSX)
+                            XLSX
                         </button>
                         <button
                             onClick={handleExportToPDF}
@@ -235,7 +242,7 @@ const ProfessorViewPage: React.FC = () => {
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
-                            Exportar Selecionado (PDF)
+                            PDF
                         </button>
                     </div>
                 </div>

@@ -1,9 +1,10 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
+import { useGrid } from '../../context/GridContext';
+import { useUI } from '../../context/UIContext';
 import { ALERT_COLORS, HORARIOS_MANHA, HORARIOS_TARDE } from '../../constants';
 import Tooltip from '../Tooltip';
-import { GradeSlot, AlertType, Periodo, Disciplina, GridType, Turma, Professor, Alerta } from '../../types';
+import { GradeSlot, Periodo, Disciplina, GridType, Turma, Professor, Alerta } from '../../types';
 
 type HighlightStatus = 'valid' | 'warning' | null;
 
@@ -137,8 +138,12 @@ const GridCell: React.FC<GridCellProps> = ({
   onOpenContextMenu, onSelectSlot, selectedSlotId, hoveredProfessorId, onProfessorHover, 
   highlightStatus, subSlotHighlightStatus, scaledCellMinHeight, scaledCellFontSize 
 }) => {
-  const { state, dispatch } = useData();
-  const { disciplinas, draggedItem, clipboard, turmas, grade } = state;
+  const { state, dispatch: dataDispatch } = useData();
+  const { state: gridState, dispatch: gridDispatch } = useGrid();
+  const { dispatch: uiDispatch } = useUI();
+  const { disciplinas, turmas, grade } = state;
+  const { draggedItem, clipboard } = gridState;
+
   const [isDragOver, setIsDragOver] = useState(false);
   const [isTooltipVisible, setIsTooltipVisible] = useState(false);
   
@@ -177,11 +182,11 @@ const GridCell: React.FC<GridCellProps> = ({
     const dragData = { type: 'GRID_ITEM' as const, sourceSlotId: slotId };
     e.dataTransfer.setData('application/json', JSON.stringify(dragData));
     e.dataTransfer.effectAllowed = 'move';
-    dispatch({ type: 'DRAG_START', payload: dragData });
+    gridDispatch({ type: 'DRAG_START', payload: dragData });
   };
 
   const onDragEnd = () => {
-    dispatch({ type: 'DRAG_END' });
+    gridDispatch({ type: 'DRAG_END' });
   };
 
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -202,15 +207,15 @@ const GridCell: React.FC<GridCellProps> = ({
     if (draggedDisciplina.divisao) {
       const isTargetingSubSlot = slot0 || slot1;
       if (draggedItem.type === 'GRID_ITEM' && isTargetingSubSlot) {
-        canDrop = true; // Swapping with another sub-slot item
+        canDrop = true;
       } else if (!slot0 || !slot1) {
-        canDrop = true; // Dropping into at least one empty sub-slot
+        canDrop = true;
       }
-    } else { // Non-divided class
+    } else {
       if (!fullSlot && !slot0 && !slot1) {
-        canDrop = true; // Dropping into empty cell
+        canDrop = true;
       } else if (draggedItem.type === 'GRID_ITEM' && fullSlot) {
-        canDrop = true; // Swapping with another full-slot item
+        canDrop = true;
       }
     }
     
@@ -229,7 +234,7 @@ const GridCell: React.FC<GridCellProps> = ({
   
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    e.stopPropagation(); // Stop propagation to prevent the grid's onClick from firing
+    e.stopPropagation();
     setIsDragOver(false);
 
     if (!draggedItem) return;
@@ -238,11 +243,10 @@ const GridCell: React.FC<GridCellProps> = ({
         const draggedDisciplina = getDraggedDisciplina();
         if (!draggedDisciplina) return;
 
-        // Check for cross-grid move
         const sourceTurma = turmas.find(t => t.id === draggedDisciplina.turmaId);
         const destinationTurma = turma;
         if (sourceTurma && destinationTurma && sourceTurma.isModular !== destinationTurma.isModular) {
-            dispatch({ type: 'SHOW_TOAST', payload: 'Não é permitido mover aulas entre a grade regular e a modular.' });
+            uiDispatch({ type: 'SHOW_TOAST', payload: 'Não é permitido mover aulas entre a grade regular e a modular.' });
             return;
         }
 
@@ -254,9 +258,9 @@ const GridCell: React.FC<GridCellProps> = ({
             const targetSubSlotId = `${id}-${isTopHalf ? 0 : 1}`;
             const otherSubSlotId = `${id}-${isTopHalf ? 1 : 0}`;
             
-            const targetSlot = state.grade.find(s => s.id === targetSubSlotId);
+            const targetSlot = grade.find(s => s.id === targetSubSlotId);
             if (targetSlot && draggedItem.sourceSlotId !== targetSubSlotId) {
-                const otherSlot = state.grade.find(s => s.id === otherSubSlotId);
+                const otherSlot = grade.find(s => s.id === otherSubSlotId);
                 destinationId = !otherSlot ? otherSubSlotId : targetSubSlotId;
             } else {
                 destinationId = targetSubSlotId;
@@ -278,32 +282,26 @@ const GridCell: React.FC<GridCellProps> = ({
         if (draggedItem.type === 'SIDEBAR_ITEM') {
             const { disciplinaId, professorId } = draggedItem;
             if (disciplinaId && professorId) {
-                if (!destinationId) {
-                    return; // Guard against undefined destination
-                }
+                if (!destinationId) return;
                 const parts = destinationId.split('_');
                 const dia = parts[1];
                 let horario = parts.slice(2).join('_');
                 const subSlotMatch = horario.match(/(.*)-([01])$/);
-                if (subSlotMatch) {
-                    horario = subSlotMatch[1]; // The horario part
-                }
+                if (subSlotMatch) horario = subSlotMatch[1];
 
-                dispatch({
+                dataDispatch({
                     type: 'UPDATE_GRADE',
                     payload: { id: destinationId, slot: { id: destinationId, turmaId: turma.id, dia, horario, disciplinaId, professorId } }
                 });
             }
         } else if (draggedItem.type === 'GRID_ITEM' && draggedItem.sourceSlotId) {
-            if (!destinationId) {
-                return; // Guard against undefined destination
-            }
-            dispatch({ type: 'SWAP_GRADE_SLOTS', payload: { sourceId: draggedItem.sourceSlotId, destinationId: destinationId } });
+            if (!destinationId) return;
+            dataDispatch({ type: 'SWAP_GRADE_SLOTS', payload: { sourceId: draggedItem.sourceSlotId, destinationId: destinationId } });
         }
     } catch (error) {
         console.error("Error handling drop in GridCell:", error);
     } finally {
-        dispatch({ type: 'DRAG_END' });
+        gridDispatch({ type: 'DRAG_END' });
     }
   };
 
@@ -338,7 +336,6 @@ const GridCell: React.FC<GridCellProps> = ({
     onOpenContextMenu(e, targetId);
   };
 
-  // --- RENDERING LOGIC ---
   const isSelected = selectedSlotId === id;
   
   const getHighlightBgClass = (status: HighlightStatus) => {
@@ -347,7 +344,6 @@ const GridCell: React.FC<GridCellProps> = ({
     return '';
   }
 
-  // RENDER A FULL SLOT (non-divided discipline)
   if (fullSlot) {
      const disciplina = state.disciplinas.find(d => d.id === fullSlot.disciplinaId);
      const professor = state.professores.find(p => p.id === fullSlot.professorId);
@@ -407,7 +403,6 @@ const GridCell: React.FC<GridCellProps> = ({
     );
   }
   
-  // RENDER CONTAINER FOR SUB-CELLS (divided discipline) or an EMPTY CELL
   const isContainerSelected = isSelected && !selectedSlotId?.endsWith('-0') && !selectedSlotId?.endsWith('-1');
   
   let containerBg = isDragOver ? 'bg-blue-300' : (isOutOfPeriod ? 'bg-slate-200' : 'bg-white');

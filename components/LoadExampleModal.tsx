@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { useData } from '../context/DataContext';
 import Modal from './Modal';
 
@@ -9,25 +9,10 @@ interface LoadExampleModalProps {
 
 const LoadExampleModal: React.FC<LoadExampleModalProps> = ({ isOpen, onClose }) => {
   const { dispatch } = useData();
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Effect to handle aborting the fetch request if the component unmounts
-  useEffect(() => {
-    // The cleanup function will be called when the modal is closed and unmounts
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
 
   const handleLoadExample = async () => {
-    // Create a new controller for this specific request
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-
     try {
-      const response = await fetch('/mock-data.json', { signal });
+      const response = await fetch('/mock-data.json');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -40,14 +25,8 @@ const LoadExampleModal: React.FC<LoadExampleModalProps> = ({ isOpen, onClose }) 
         throw new Error('Arquivo de exemplo inválido.');
       }
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        // This is an expected error when the modal is closed during fetch.
-        // No need to show a user-facing error message.
-        console.log('Fetch for example data was aborted.');
-      } else {
-        console.error("Erro ao carregar dados de exemplo:", error);
-        dispatch({ type: 'SHOW_TOAST', payload: 'Falha ao carregar dados de exemplo.' });
-      }
+      console.error("Erro ao carregar dados de exemplo:", error);
+      dispatch({ type: 'SHOW_TOAST', payload: 'Falha ao carregar dados de exemplo.' });
     } finally {
       onClose();
     }

@@ -1,39 +1,12 @@
 
-
 import { AppState, Alerta, AlertType, GradeSlot } from '../types';
 import { DIAS_SEMANA } from '../constants';
 
 // Helper to convert "HH:MM-HH:MM" to start/end minutes from day start
 export const timeToMinutes = (time: string): { start: number; end: number } => {
-  // Robustness check to prevent crashes from malformed localStorage data
-  if (typeof time !== 'string' || !time.includes('-') || !time.includes(':')) {
-    console.error(`[validationService] Invalid time format passed to timeToMinutes: "${time}"`);
-    return { start: 0, end: 0 };
-  }
-
   const [startStr, endStr] = time.split('-');
-  
-  if (!startStr || !endStr) {
-      console.error(`[validationService] Incomplete time format (missing start or end): "${time}"`);
-      return { start: 0, end: 0 };
-  }
-
-  const startParts = startStr.split(':');
-  const endParts = endStr.split(':');
-
-  if (startParts.length !== 2 || endParts.length !== 2) {
-      console.error(`[validationService] Malformed time parts (HH:MM expected): "${time}"`);
-      return { start: 0, end: 0 };
-  }
-
-  const [startH, startM] = startParts.map(Number);
-  const [endH, endM] = endParts.map(Number);
-
-  if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) {
-      console.error(`[validationService] Non-numeric values found in time string: "${time}"`);
-      return { start: 0, end: 0 };
-  }
-  
+  const [startH, startM] = startStr.split(':').map(Number);
+  const [endH, endM] = endStr.split(':').map(Number);
   return {
     start: startH * 60 + startM,
     end: endH * 60 + endM,
@@ -44,20 +17,35 @@ export const validateState = (state: AppState): Alerta[] => {
   const alertas: Alerta[] = [];
   const { professores, grade, disciplinas, atribuicoes, turmas } = state;
 
-  // Rule: Professor schedule conflict (same time, different classes)
-  const professorSchedule: Record<string, GradeSlot[]> = {};
+  // --- Pre-compute Maps for O(1) Lookups ---
+  const profMap = new Map(professores.map(p => [p.id, p]));
+  const discMap = new Map(disciplinas.map(d => [d.id, d]));
+  const turmaMap = new Map(turmas.map(t => [t.id, t]));
+  const atribMap = new Map(atribuicoes.map(a => [a.disciplinaId, a]));
+  
+  // Indices for validation rules
+  const slotsByProf = new Map<string, GradeSlot[]>();
+  const slotsByTime = new Map<string, GradeSlot[]>(); // Key: `${professorId}-${dia}-${horario}`
+
   grade.forEach(slot => {
-      const key = `${slot.professorId}-${slot.dia}-${slot.horario}`;
-      if (!professorSchedule[key]) {
-          professorSchedule[key] = [];
+      // Index by Professor
+      if (!slotsByProf.has(slot.professorId)) {
+          slotsByProf.set(slot.professorId, []);
       }
-      professorSchedule[key].push(slot);
+      slotsByProf.get(slot.professorId)!.push(slot);
+
+      // Index by Time for Conflict Detection
+      const timeKey = `${slot.professorId}-${slot.dia}-${slot.horario}`;
+      if (!slotsByTime.has(timeKey)) {
+          slotsByTime.set(timeKey, []);
+      }
+      slotsByTime.get(timeKey)!.push(slot);
   });
 
-  for (const key in professorSchedule) {
-      if (professorSchedule[key].length > 1) {
-          const conflictingSlots = professorSchedule[key];
-          const professor = professores.find(p => p.id === conflictingSlots[0].professorId);
+  // --- Rule 1: Professor schedule conflict (same time, different classes) ---
+  slotsByTime.forEach((conflictingSlots, key) => {
+      if (conflictingSlots.length > 1) {
+          const professor = profMap.get(conflictingSlots[0].professorId);
           const dia = conflictingSlots[0].dia;
           const horario = conflictingSlots[0].horario;
 
@@ -69,33 +57,40 @@ export const validateState = (state: AppState): Alerta[] => {
               gradeSlotIds: conflictingSlots.map(s => s.id),
           });
       }
-  }
+  });
 
-  // Rule: Swapped between classes
+  // --- Rule 2: Swapped between classes (Iterate Grade O(N)) ---
   grade.forEach(slot => {
-    const originalDisciplina = state.disciplinas.find(d => d.id === slot.disciplinaId);
+    const originalDisciplina = discMap.get(slot.disciplinaId);
     if (originalDisciplina && originalDisciplina.turmaId !== slot.turmaId) {
-      // It's a swap. A swap is valid (no alert) only if it's a BNCC discipline
-      // moved to a target class where the same professor is assigned to the corresponding BNCC discipline.
-      
+      // It's a swap. Check if valid BNCC swap.
       let isBnccSwapValid = false;
       if (originalDisciplina.bnccId) {
-        const targetDisciplina = state.disciplinas.find(d => 
-          d.turmaId === slot.turmaId && 
-          d.bnccId === originalDisciplina.bnccId
+        // Find if there is a discipline in the TARGET turma with the same BNCC ID
+        // AND if the current professor is assigned to that target discipline.
+        
+        // Optimization: We need to find a specific discipline in the target turma.
+        // Instead of filtering all disciplines, we iterate the known disciplines of the target turma? 
+        // Since we don't have a `disciplinasByTurma` map, we do a quick search on `disciplinas`. 
+        // Given typical array sizes, a simple find here is acceptable, or we could optimize further if needed.
+        // For O(1), we would need a Map<`${turmaId}-${bnccId}`, Disciplina>.
+        
+        const targetDisciplina = disciplinas.find(d => 
+            d.turmaId === slot.turmaId && 
+            d.bnccId === originalDisciplina.bnccId
         );
 
         if (targetDisciplina) {
-          const targetAtribuicao = state.atribuicoes.find(a => a.disciplinaId === targetDisciplina.id);
-          if (targetAtribuicao && targetAtribuicao.professores.includes(slot.professorId)) {
-            isBnccSwapValid = true;
-          }
+            const targetAtribuicao = atribMap.get(targetDisciplina.id);
+            if (targetAtribuicao && targetAtribuicao.professores.includes(slot.professorId)) {
+                isBnccSwapValid = true;
+            }
         }
       }
       
       if (!isBnccSwapValid) {
-        const turmaA = state.turmas.find(t=>t.id === originalDisciplina.turmaId)?.nome || `ID Inválido (${originalDisciplina.turmaId})`;
-        const turmaB = state.turmas.find(t=>t.id === slot.turmaId)?.nome || `ID Inválido (${slot.turmaId})`;
+        const turmaA = turmaMap.get(originalDisciplina.turmaId)?.nome || `ID Inválido (${originalDisciplina.turmaId})`;
+        const turmaB = turmaMap.get(slot.turmaId)?.nome || `ID Inválido (${slot.turmaId})`;
         
         alertas.push({
           id: `turma-errada-${slot.id}`,
@@ -108,21 +103,28 @@ export const validateState = (state: AppState): Alerta[] => {
     }
   });
   
-  // Rule: Intersticio < 11h
+  // --- Rules 3 & 4: Intersticio & Max Aulas (Iterate Professors O(P)) ---
   professores.forEach(prof => {
-    const professorSlots = grade.filter(g => g.professorId === prof.id);
-    const aulasPorDia: Record<string, { minStart: number, maxEnd: number }> = {};
+    const professorSlots = slotsByProf.get(prof.id) || [];
+    if (professorSlots.length === 0) return;
+
+    const aulasPorDia: Record<string, { minStart: number, maxEnd: number, count: number }> = {};
     
     professorSlots.forEach(slot => {
         const { start, end } = timeToMinutes(slot.horario);
+        const turma = turmaMap.get(slot.turmaId);
+        const aulaValue = turma?.isModular ? 1.25 : 1;
+
         if (!aulasPorDia[slot.dia]) {
-            aulasPorDia[slot.dia] = { minStart: start, maxEnd: end };
+            aulasPorDia[slot.dia] = { minStart: start, maxEnd: end, count: aulaValue };
         } else {
             aulasPorDia[slot.dia].minStart = Math.min(aulasPorDia[slot.dia].minStart, start);
             aulasPorDia[slot.dia].maxEnd = Math.max(aulasPorDia[slot.dia].maxEnd, end);
+            aulasPorDia[slot.dia].count += aulaValue;
         }
     });
 
+    // Rule 3: Intersticio
     for (let i = 0; i < DIAS_SEMANA.length - 1; i++) {
         const dia1 = DIAS_SEMANA[i];
         const dia2 = DIAS_SEMANA[i+1];
@@ -146,43 +148,31 @@ export const validateState = (state: AppState): Alerta[] => {
             }
         }
     }
-  });
 
-  // Rule: Maximum 8 classes per day per professor
-  professores.forEach(prof => {
-    const aulasPorDia: Record<string, GradeSlot[]> = {};
-    grade.filter(g => g.professorId === prof.id).forEach(g => {
-      if (!aulasPorDia[g.dia]) aulasPorDia[g.dia] = [];
-      aulasPorDia[g.dia].push(g);
-    });
-
+    // Rule 4: Max Aulas
     for (const dia in aulasPorDia) {
-      const totalAulasNoDia = aulasPorDia[dia].reduce((total, slot) => {
-        const turma = turmas.find(t => t.id === slot.turmaId);
-        const aulaValue = turma?.isModular ? 1.25 : 1;
-        return total + aulaValue;
-      }, 0);
-      
-      if (totalAulasNoDia > 8) {
-        alertas.push({
-          id: `max-aulas-${prof.id}-${dia}`,
-          tipo: AlertType.MaxAulasDia,
-          detalhes: `Professor ${prof.nome} tem o equivalente a ${totalAulasNoDia} aulas na ${dia}.`,
-          timestamp: Date.now(),
-          gradeSlotIds: aulasPorDia[dia].map(g => g.id),
-        });
-      }
+        if (aulasPorDia[dia].count > 8) {
+             const slotsDoDia = professorSlots.filter(s => s.dia === dia).map(s => s.id);
+             alertas.push({
+                id: `max-aulas-${prof.id}-${dia}`,
+                tipo: AlertType.MaxAulasDia,
+                detalhes: `Professor ${prof.nome} tem o equivalente a ${aulasPorDia[dia].count} aulas na ${dia}.`,
+                timestamp: Date.now(),
+                gradeSlotIds: slotsDoDia,
+             });
+        }
     }
   });
 
-  // Rule: Conflito de Disponibilidade em Disciplina Dividida
+  // --- Rule 5 & 6: Conflito Divisão & Availability (Iterate Grade O(N)) ---
   grade.forEach(slot => {
-      const disciplina = disciplinas.find(d => d.id === slot.disciplinaId);
+      // Rule 5: Conflito Disponibilidade Divisão
+      const disciplina = discMap.get(slot.disciplinaId);
       if (disciplina && disciplina.divisao) {
-          const atribuicao = atribuicoes.find(a => a.disciplinaId === disciplina.id);
+          const atribuicao = atribMap.get(disciplina.id);
           if (atribuicao && atribuicao.professores.length > 1) {
               atribuicao.professores.forEach(profId => {
-                  const professor = professores.find(p => p.id === profId);
+                  const professor = profMap.get(profId);
                   if (professor) {
                       const diaDisponivel = professor.disponibilidade[slot.dia];
                       if (!diaDisponivel || !diaDisponivel.includes(slot.horario)) {
@@ -198,26 +188,24 @@ export const validateState = (state: AppState): Alerta[] => {
               });
           }
       }
-  });
-  
-  // Rule: Class outside of availability
-  grade.forEach(slot => {
-    const professor = professores.find(p => p.id === slot.professorId);
-    if (professor) {
-      const diaDisponivel = professor.disponibilidade[slot.dia];
-      if (!diaDisponivel || !diaDisponivel.includes(slot.horario)) {
-        alertas.push({
-          id: `indisponivel-${slot.id}`,
-          tipo: AlertType.Indisponivel,
-          detalhes: `Aula de ${disciplinas.find(d=>d.id===slot.disciplinaId)?.nome} para ${professor.nome} está fora de sua disponibilidade.`,
-          timestamp: Date.now(),
-          gradeSlotIds: [slot.id],
-        });
+
+      // Rule 6: Class outside of availability
+      const professor = profMap.get(slot.professorId);
+      if (professor) {
+        const diaDisponivel = professor.disponibilidade[slot.dia];
+        if (!diaDisponivel || !diaDisponivel.includes(slot.horario)) {
+            alertas.push({
+                id: `indisponivel-${slot.id}`,
+                tipo: AlertType.Indisponivel,
+                detalhes: `Aula de ${disciplina?.nome || 'Desconhecida'} para ${professor.nome} está fora de sua disponibilidade.`,
+                timestamp: Date.now(),
+                gradeSlotIds: [slot.id],
+            });
+        }
       }
-    }
   });
 
-  // Remove duplicate alerts by ID
+  // Remove duplicate alerts by ID (though with precise IDs above, dups should be rare)
   const uniqueAlerts = Array.from(new Map(alertas.map(a => [a.id, a])).values());
 
   return uniqueAlerts;

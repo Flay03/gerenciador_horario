@@ -91,7 +91,6 @@ const CursosManager: React.FC = () => {
             onChange={(e) => setCursoName(e.target.value)}
             className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
             required
-            maxLength={255}
           />
           <div className="mt-4 flex justify-end space-x-2">
              <button type="button" onClick={handleCloseModal} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">Cancelar</button>

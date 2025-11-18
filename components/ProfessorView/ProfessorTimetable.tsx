@@ -128,4 +128,4 @@ const ProfessorTimetable: React.FC<ProfessorTimetableProps> = ({ professorId }) 
     );
 };
 
-export default ProfessorTimetable;
+export default React.memo(ProfessorTimetable);

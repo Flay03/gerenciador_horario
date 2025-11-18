@@ -1,51 +1,26 @@
-
+import { z } from 'zod';
+import { 
+  CursoSchema, 
+  TurmaSchema, 
+  DisciplinaSchema, 
+  ProfessorSchema, 
+  AtribuicaoSchema, 
+  GradeSlotSchema, 
+  BnccSchema 
+} from './utils/schemas';
 
 export type Periodo = 'manha' | 'tarde' | 'noite';
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 export type GridType = 'regular' | 'modular';
 
-export interface Curso {
-  id: string;
-  nome: string;
-}
-
-export interface Turma {
-  id: string;
-  cursoId: string;
-  nome: string;
-  periodo: Periodo;
-  isModular: boolean;
-}
-
-export interface Disciplina {
-  id: string;
-  turmaId: string;
-  nome: string;
-  divisao: boolean;
-  numProfessores: number;
-  aulasSemanais: number;
-  bnccId?: string;
-}
-
-export interface Professor {
-  id: string;
-  nome: string;
-  disponibilidade: Record<string, string[]>; // e.g., { "segunda": ["07:10-08:00"] }
-}
-
-export interface Atribuicao {
-  disciplinaId: string;
-  professores: string[]; // Array of professor IDs
-}
-
-export interface GradeSlot {
-  id: string; // Unique ID for the slot, e.g., `${turmaId}_${dia}_${horario}`
-  turmaId: string;
-  dia: string;
-  horario: string;
-  disciplinaId: string;
-  professorId: string;
-}
+// Infer Types from Zod Schemas
+export type Curso = z.infer<typeof CursoSchema>;
+export type Turma = z.infer<typeof TurmaSchema>;
+export type Disciplina = z.infer<typeof DisciplinaSchema>;
+export type Professor = z.infer<typeof ProfessorSchema>;
+export type Atribuicao = z.infer<typeof AtribuicaoSchema>;
+export type GradeSlot = z.infer<typeof GradeSlotSchema>;
+export type Bncc = z.infer<typeof BnccSchema>;
 
 export enum AlertType {
   ProfessorConflitoHorario = 'professor_conflito_horario',
@@ -64,6 +39,29 @@ export interface Alerta {
   gradeSlotIds: string[];
 }
 
+export interface PresenceUser {
+    id: string;
+    name: string;
+    email: string;
+}
+
+// --- DATA CONTEXT STATE (Persistent Domain Data) ---
+export interface AppState {
+  version: string;
+  ano: number;
+  cursos: Curso[];
+  turmas: Turma[];
+  disciplinas: Disciplina[];
+  professores: Professor[];
+  atribuicoes: Atribuicao[];
+  grade: GradeSlot[];
+  bncc: Bncc[];
+  alertas: Alerta[]; // Computed derived state
+  lastModifiedBy: string | null;
+  lastModifiedAt: string | null;
+}
+
+// --- GRID CONTEXT STATE (Transient Interaction Data) ---
 export interface DraggedItemInfo {
   type: 'SIDEBAR_ITEM' | 'GRID_ITEM';
   disciplinaId?: string;
@@ -76,45 +74,30 @@ export interface ClipboardItem {
   type: 'copy' | 'cut';
 }
 
-export interface Bncc {
-  id: string;
-  nome: string;
+export interface GridState {
+  draggedItem: DraggedItemInfo | null;
+  clipboard: ClipboardItem | null;
+  selectedSlotId: string | null;
 }
 
-export interface PresenceUser {
-    id: string;
-    name: string;
-    email: string;
-}
-
-export interface AppState {
-  version: string;
-  ano: number;
-  cursos: Curso[];
-  turmas: Turma[];
-  disciplinas: Disciplina[];
-  professores: Professor[];
-  atribuicoes: Atribuicao[];
-  grade: GradeSlot[];
-  alertas: Alerta[];
-  bncc: Bncc[];
-  toastMessage?: string | null;
-  draggedItem?: DraggedItemInfo | null;
-  clipboard?: ClipboardItem | null;
-  selectedSlotId?: string | null;
+// --- UI CONTEXT STATE (Global Interface State) ---
+export interface UIState {
+  toastMessage: string | null;
   onlineUsers: PresenceUser[];
   saveStatus: SaveStatus;
-  lastModifiedBy: string | null;
-  lastModifiedAt: string | null;
+  isSidebarCollapsed: boolean;
 }
 
-export type Action =
+// --- ACTIONS ---
+
+export type DataAction =
   | { type: 'SET_STATE'; payload: AppState }
   // Grade
   | { type: 'UPDATE_GRADE'; payload: { slot: GradeSlot | null; id: string } }
   | { type: 'SWAP_GRADE_SLOTS'; payload: { sourceId: string; destinationId: string } }
   | { type: 'DELETE_SLOT'; payload: { slotId: string } }
   | { type: 'POPULATE_GRADE'; payload: GradeSlot[] }
+  | { type: 'PASTE_SLOT'; payload: { destinationId: string; sourceSlot: GradeSlot; isCut: boolean } }
   // Curso
   | { type: 'ADD_CURSO'; payload: Curso }
   | { type: 'UPDATE_CURSO'; payload: Curso }
@@ -138,24 +121,25 @@ export type Action =
   // General
   | { type: 'UPDATE_ANO'; payload: number }
   | { type: 'SET_ALERTS'; payload: Alerta[] }
-  // UI
-  | { type: 'SHOW_TOAST'; payload: string | null }
   | { type: 'CLEAR_DATA' }
-  | { type: 'SELECT_SLOT'; payload: { slotId: string | null } }
-  // Drag & Drop
-  | { type: 'DRAG_START'; payload: DraggedItemInfo }
-  | { type: 'DRAG_END' }
-  // BNCC
-  | { type: 'CREATE_BNCC'; payload: { nome: string } }
-  | { type: 'DELETE_BNCC'; payload: { bnccId: string } }
   // Undo/Redo
   | { type: 'UNDO' }
   | { type: 'REDO' }
-  // Clipboard
-  | { type: 'COPY_SLOT'; payload: { sourceSlotId: string } }
-  | { type: 'CUT_SLOT'; payload: { sourceSlotId: string } }
-  | { type: 'PASTE_SLOT'; payload: { destinationId: string } }
-  // Presence
-  | { type: 'SET_ONLINE_USERS', payload: PresenceUser[] }
-  // Save Status
-  | { type: 'SET_SAVE_STATUS', payload: SaveStatus };
+  // BNCC
+  | { type: 'CREATE_BNCC'; payload: { nome: string } }
+  | { type: 'DELETE_BNCC'; payload: { bnccId: string } };
+
+export type GridAction = 
+  | { type: 'DRAG_START'; payload: DraggedItemInfo }
+  | { type: 'DRAG_END' }
+  | { type: 'SELECT_SLOT'; payload: { slotId: string | null } }
+  | { type: 'COPY_SLOT'; payload: { sourceSlot: GradeSlot } }
+  | { type: 'CUT_SLOT'; payload: { sourceSlot: GradeSlot } }
+  | { type: 'PASTE_SLOT'; payload: { isCut: boolean } } 
+  | { type: 'CLEAR_CLIPBOARD' };
+
+export type UIAction = 
+  | { type: 'SHOW_TOAST'; payload: string | null }
+  | { type: 'SET_ONLINE_USERS'; payload: PresenceUser[] }
+  | { type: 'SET_SAVE_STATUS'; payload: SaveStatus }
+  | { type: 'TOGGLE_SIDEBAR'; payload?: boolean };

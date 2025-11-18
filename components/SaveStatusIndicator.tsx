@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { SaveStatus } from '../types';
 
@@ -44,7 +43,7 @@ const SaveStatusIndicator: React.FC<SaveStatusIndicatorProps> = ({ status, lastM
           text: 'Erro ao salvar',
           textColor: 'text-red-600',
         };
-      default: // idle
+      default:
         return null;
     }
   };

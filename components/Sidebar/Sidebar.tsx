@@ -1,7 +1,6 @@
-
-
 import React, { useState, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
+import { useGrid } from '../../context/GridContext';
 import DraggableItem from './DraggableItem';
 import { resolveBnccDiscipline } from '../../services/bnccHelper';
 import { GridType } from '../../types';
@@ -12,7 +11,11 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ gridType }) => {
   const { state, dispatch } = useData();
-  const { atribuicoes, disciplinas, professores, turmas, draggedItem } = state;
+  const { state: gridState, dispatch: gridDispatch } = useGrid();
+  
+  const { atribuicoes, disciplinas, professores, turmas } = state;
+  const { draggedItem } = gridState;
+
   const [turmaFilter, setTurmaFilter] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
@@ -24,7 +27,7 @@ const Sidebar: React.FC<SidebarProps> = ({ gridType }) => {
   const getTurmaName = (turmaId: string) => turmas.find(t => t.id === turmaId)?.nome || 'N/A';
 
   const allocatedCounts = useMemo(() => {
-    const counts: Record<string, Record<string, number>> = {}; // { [disciplinaId]: { [professorId]: count } }
+    const counts: Record<string, Record<string, number>> = {}; 
 
     state.grade.forEach(slot => {
         const { finalDisciplinaId } = resolveBnccDiscipline(slot, state);
@@ -47,7 +50,6 @@ const Sidebar: React.FC<SidebarProps> = ({ gridType }) => {
     return turmas.filter(t => t.isModular === (gridType === 'modular'));
   }, [turmas, gridType]);
   
-  // Create a flat list of all individual professor assignments
   const allProfessorAssignments = useMemo(() => {
     return atribuicoes.flatMap(atribuicao => {
       const disciplina = disciplinas.find(d => d.id === atribuicao.disciplinaId);
@@ -68,7 +70,6 @@ const Sidebar: React.FC<SidebarProps> = ({ gridType }) => {
   }, [atribuicoes, disciplinas, turmas, professores, gridType]);
 
 
-  // Filter based on selected turma and search text
   const filteredItems = allProfessorAssignments.filter(item => {
       if (turmaFilter !== 'all' && item.turmaId !== turmaFilter) return false;
       if (searchText.trim() !== '' && !item.professor?.nome.toLowerCase().includes(searchText.toLowerCase())) return false;
@@ -97,8 +98,7 @@ const Sidebar: React.FC<SidebarProps> = ({ gridType }) => {
       dispatch({ type: 'UPDATE_GRADE', payload: { id: draggedItem.sourceSlotId, slot: null } });
     }
     
-    // Always clean up drag state on drop.
-    dispatch({ type: 'DRAG_END' });
+    gridDispatch({ type: 'DRAG_END' });
   };
 
 

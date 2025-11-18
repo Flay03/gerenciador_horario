@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { AppState, Turma } from '../../types';
 import { parseSIGHTML } from '../../services/localParseService';
+import LoadingSpinner from '../LoadingSpinner';
 
 type Step = 'upload' | 'validate' | 'success';
 
@@ -17,12 +18,6 @@ const ImportWizard: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      if (selectedFile.size > 5 * 1024 * 1024) { // 5MB limit
-          setError('O arquivo é muito grande. O limite é de 5MB.');
-          setFile(null);
-          e.target.value = ''; // Reset the input
-          return;
-      }
       setFile(selectedFile);
       setError(null);
     }
@@ -41,6 +36,11 @@ const ImportWizard: React.FC = () => {
       try {
         const htmlContent = event.target?.result as string;
         const data = parseSIGHTML(htmlContent);
+        
+        if (!data.turmas || data.turmas.length === 0) {
+            throw new Error("Nenhuma turma encontrada. Verifique se o arquivo HTML contém as tabelas de horário.");
+        }
+
         setParsedData(data);
         
         if (data.turmas) {
@@ -52,15 +52,15 @@ const ImportWizard: React.FC = () => {
         }
 
         setStep('validate');
-      } catch (err) {
-        setError('Ocorreu um erro ao analisar o arquivo. Verifique se o formato está correto.');
+      } catch (err: any) {
+        setError(err.message || 'Ocorreu um erro desconhecido ao analisar o arquivo.');
         console.error(err);
       } finally {
         setIsLoading(false);
       }
     };
     reader.onerror = () => {
-        setError('Não foi possível ler o arquivo.');
+        setError('Não foi possível ler o arquivo. Verifique se ele não está corrompido.');
         setIsLoading(false);
     }
     reader.readAsText(file, 'UTF-8');
@@ -84,12 +84,6 @@ const ImportWizard: React.FC = () => {
             grade: [],
             alertas: [],
             bncc: [],
-            toastMessage: null,
-            draggedItem: null,
-            clipboard: null,
-            selectedSlotId: null,
-            onlineUsers: [],
-            saveStatus: 'saved',
             lastModifiedBy: null,
             lastModifiedAt: null,
         };
@@ -145,14 +139,34 @@ const ImportWizard: React.FC = () => {
                     )}
                 </div>
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {error && (
+                <div className="bg-red-50 border-l-4 border-red-500 p-4">
+                    <div className="flex">
+                        <div className="flex-shrink-0">
+                            <svg className="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                            </svg>
+                        </div>
+                        <div className="ml-3">
+                            <p className="text-sm text-red-700">{error}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="flex justify-end">
                 <button 
                     onClick={handleParse} 
                     disabled={!file || isLoading}
-                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400"
+                    className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
-                    {isLoading ? 'Analisando...' : 'Analisar Arquivo'}
+                    {isLoading ? (
+                        <>
+                            <LoadingSpinner size={20} color="text-white mr-2" />
+                            Analisando...
+                        </>
+                    ) : (
+                        'Analisar Arquivo'
+                    )}
                 </button>
             </div>
         </div>
@@ -188,7 +202,7 @@ const ImportWizard: React.FC = () => {
                                   onChange={e => handleTurmaModularStatusChange(turma.id, e.target.checked)}
                                   className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                               />
-                              <label htmlFor={`turma-modular-toggle-${turma.id}`} className="ml-3 block text-sm font-medium text-gray-700 cursor-pointer">
+                              <label htmlFor={`turma-modular-toggle-${turma.id}`} className="ml-3 block text-sm font-medium text-gray-700 cursor-pointer select-none">
                                   {turma.nome}
                               </label>
                           </div>
@@ -208,6 +222,11 @@ const ImportWizard: React.FC = () => {
 
       {step === 'success' && (
         <div className="bg-white p-6 rounded-lg shadow text-center space-y-4">
+            <div className="flex justify-center">
+                <svg className="h-16 w-16 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
             <h3 className="text-lg font-semibold text-green-700">Importação Concluída!</h3>
             <p>Os dados foram importados com sucesso. Você já pode navegar para as outras abas de gerenciamento para ver os resultados.</p>
             <button onClick={handleReset} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Importar Novo Arquivo</button>

@@ -9,7 +9,7 @@ const Toast: React.FC<ToastProps> = ({ message, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
-    }, 3000); // Auto-close after 3 seconds
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [onClose]);
@@ -22,18 +22,10 @@ const Toast: React.FC<ToastProps> = ({ message, onClose }) => {
       </div>
       <style>{`
         @keyframes fade-in-up {
-          0% {
-            opacity: 0;
-            transform: translate(-50%, 10px);
-          }
-          100% {
-            opacity: 1;
-            transform: translate(-50%, 0);
-          }
+          0% { opacity: 0; transform: translate(-50%, 10px); }
+          100% { opacity: 1; transform: translate(-50%, 0); }
         }
-        .animate-fade-in-up {
-          animation: fade-in-up 0.3s ease-out forwards;
-        }
+        .animate-fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
       `}</style>
     </div>
   );

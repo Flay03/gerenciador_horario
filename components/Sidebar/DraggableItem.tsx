@@ -1,5 +1,5 @@
 import React from 'react';
-import { useData } from '../../context/DataContext';
+import { useGrid } from '../../context/GridContext';
 
 interface DraggableItemProps {
   id: string;
@@ -10,7 +10,7 @@ interface DraggableItemProps {
 }
 
 const DraggableItem: React.FC<DraggableItemProps> = ({ id, label, subLabel, isLocked = false, isBeingDragged = false }) => {
-  const { dispatch } = useData();
+  const { dispatch: gridDispatch } = useGrid();
   
   const onDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     if (isLocked) {
@@ -23,15 +23,15 @@ const DraggableItem: React.FC<DraggableItemProps> = ({ id, label, subLabel, isLo
         disciplinaId,
         professorId
     };
-    // This is still needed for Firefox and some other browsers to initiate the drag.
+    
     e.dataTransfer.setData('application/json', JSON.stringify(dragData));
     e.dataTransfer.effectAllowed = 'move';
     
-    dispatch({ type: 'DRAG_START', payload: dragData });
+    gridDispatch({ type: 'DRAG_START', payload: dragData });
   };
   
   const onDragEnd = () => {
-    dispatch({ type: 'DRAG_END' });
+    gridDispatch({ type: 'DRAG_END' });
   };
 
   const baseClasses = 'p-2 rounded-md shadow-sm transition-all duration-150';
@@ -58,4 +58,4 @@ const DraggableItem: React.FC<DraggableItemProps> = ({ id, label, subLabel, isLo
   );
 };
 
-export default DraggableItem;
+export default React.memo(DraggableItem);
