@@ -4,6 +4,7 @@ Este é um aplicativo web para auxiliar na criação manual de grades de horári
 
 ## Core Features
 
+-   **Painel de Controle (Dashboard):** Gráficos e estatísticas em tempo real sobre o preenchimento da grade, carga horária dos professores e alertas de conflito.
 -   **Gerenciamento de Dados:** CRUD completo para Cursos, Turmas, Disciplinas, Professores e Atribuições.
 -   **Grades Duplas:** Interface com abas para gerenciar separadamente a Grade Regular e a Grade Modular.
 -   **Montagem Visual:** Arraste e solte aulas do painel lateral para a grade. Mova e troque aulas com facilidade.
@@ -31,11 +32,12 @@ Este é um aplicativo web para auxiliar na criação manual de grades de horári
 /
 ├── components/         # Componentes React reutilizáveis
 │   ├── management/     # Componentes para a página de gerenciamento
+│   ├── Dashboard/      # Componentes para a página de dashboard
 │   ├── Sidebar/        # Componentes do painel lateral da grade
 │   ├── TimetableGrid/  # Componentes da grade de horários
 │   └── ...
 ├── context/            # Contexto React para gerenciamento de estado global
-├── pages/              # Componentes de página de nível superior (Gerenciamento, Professor)
+├── pages/              # Componentes de página de nível superior (Dashboard, Grade, Gerenciamento, Professor)
 ├── services/           # Lógica de negócios (validação, importação, exportação)
 ├── types/              # Definições de tipos TypeScript
 ├── utils/              # Funções de utilidade
