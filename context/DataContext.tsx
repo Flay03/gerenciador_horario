@@ -1,9 +1,11 @@
+
 import React, { createContext, useContext, useReducer, useEffect, useCallback, ReactNode, useRef } from 'react';
-import { AppState, Action, GradeSlot, Bncc, PresenceUser, Turma, Alerta, Professor } from '../types';
+import { AppState, Action, GradeSlot, Bncc, PresenceUser, Turma, Alerta, Professor, Curso, Disciplina } from '../types';
 import { validateState } from '../services/validationService';
 import { db, auth } from '../firebaseConfig';
 import { FIREBASE_ENABLED } from '../config';
 import { LOCAL_STORAGE_KEY } from '../constants';
+import * as firebase from 'firebase/compat/app'; // Import namespace for type access
 
 const DataContext = createContext<{ state: AppState; dispatch: React.Dispatch<Action> } | undefined>(undefined);
 
@@ -34,8 +36,11 @@ let historyIndex = 0;
 
 // Helper function to parse slot IDs robustly
 const parseSlotId = (id: string) => {
-  // Use a robust separator that is not expected in the turmaId itself.
   const parts = id.split('_');
+   if (parts.length < 3) {
+      console.error('Invalid slot ID:', id);
+      return { turmaId: '', dia: '', horario: '' };
+    }
   const turmaId = parts[0] || '';
   const dia = parts[1] || '';
   let horario = parts.slice(2).join('_');
@@ -52,53 +57,96 @@ const parseSlotId = (id: string) => {
 const sanitizeLoadedState = (loadedState: any): AppState => {
     const newState = { ...initialState, ...loadedState };
 
+    // Sanitize primitives
     if (typeof newState.ano !== 'number' || isNaN(newState.ano)) {
         newState.ano = new Date().getFullYear();
     }
 
-    const arraysToEnsure: (keyof AppState)[] = ['cursos', 'turmas', 'disciplinas', 'professores', 'atribuicoes', 'grade', 'alertas', 'bncc', 'onlineUsers'];
-    arraysToEnsure.forEach(key => {
+    // Ensure all major data arrays exist
+    const arraysToSanitize: (keyof AppState)[] = ['cursos', 'turmas', 'disciplinas', 'professores', 'atribuicoes', 'grade', 'alertas', 'bncc'];
+    arraysToSanitize.forEach(key => {
         if (!Array.isArray(newState[key])) {
             (newState as any)[key] = [];
         }
     });
 
-    if (Array.isArray(newState.turmas)) {
-      newState.turmas = newState.turmas.map((t: any) => {
-        if (!t) return null; // Filter out null/undefined entries
-        return {
-          ...t,
-          isModular: !!t.isModular, // Ensure isModular exists and is a boolean
-        };
-      }).filter(Boolean) as Turma[];
-    }
+    // --- Sanitize each entity array for shape and required fields ---
     
-    if (Array.isArray(newState.professores)) {
-        newState.professores = newState.professores.map(prof => {
-            if (prof && (typeof prof.disponibilidade !== 'object' || prof.disponibilidade === null || Array.isArray(prof.disponibilidade))) {
-                return { ...prof, disponibilidade: {} };
+    newState.cursos = (newState.cursos as any[]).filter(c => c && typeof c.id === 'string' && typeof c.nome === 'string');
+    
+    newState.turmas = (newState.turmas as any[])
+        .filter(t => t && typeof t.id === 'string' && typeof t.cursoId === 'string' && typeof t.nome === 'string' && typeof t.periodo === 'string')
+        .map((t: any) => ({ ...t, isModular: !!t.isModular }));
+
+    newState.disciplinas = (newState.disciplinas as any[]).filter(d => 
+        d && typeof d.id === 'string' && typeof d.turmaId === 'string' && typeof d.nome === 'string' && typeof d.aulasSemanais === 'number'
+    );
+
+    newState.professores = (newState.professores as any[])
+        .filter(p => p && typeof p.id === 'string' && typeof p.nome === 'string')
+        .map(p => ({
+            ...p,
+            disponibilidade: (typeof p.disponibilidade === 'object' && p.disponibilidade !== null && !Array.isArray(p.disponibilidade))
+                ? p.disponibilidade
+                : {}
+        }));
+
+    newState.atribuicoes = (newState.atribuicoes as any[]).filter(a =>
+        a && typeof a.disciplinaId === 'string' && Array.isArray(a.professores)
+    );
+    
+    newState.grade = (newState.grade as any[]).filter(slot => {
+        if (!slot || typeof slot !== 'object') return false;
+        const requiredKeys: (keyof GradeSlot)[] = ['id', 'turmaId', 'dia', 'horario', 'disciplinaId', 'professorId'];
+        return requiredKeys.every(key => typeof slot[key] === 'string' && slot[key]);
+    });
+
+    newState.bncc = (newState.bncc as any[]).filter(b => b && typeof b.id === 'string' && typeof b.nome === 'string');
+    newState.alertas = []; // Alerts are always recalculated
+
+    // --- Perform cross-reference sanitization to remove orphans ---
+
+    const validCursoIds = new Set(newState.cursos.map(c => c.id));
+    // Re-calculate validTurmaIds after potentially filtering turmas based on validCursoIds
+    const validTurmaIds = new Set(newState.turmas.filter(t => validCursoIds.has(t.cursoId)).map(t => t.id));
+    const validDisciplinaIds = new Set(newState.disciplinas.filter(d => validTurmaIds.has(d.turmaId)).map(d => d.id));
+    const validProfessorIds = new Set(newState.professores.map(p => p.id));
+    
+    newState.turmas = newState.turmas.filter(t => {
+        if (!validCursoIds.has(t.cursoId)) {
+            console.warn(`Removing orphaned turma with invalid cursoId: ${t.cursoId}`, t);
+            return false;
+        }
+        return true;
+    });
+
+    newState.disciplinas = newState.disciplinas.filter(d => {
+        if(!validTurmaIds.has(d.turmaId)) {
+            console.warn(`Removing orphaned disciplina with invalid turmaId: ${d.turmaId}`, d);
+            return false;
+        }
+        return true;
+    });
+
+    newState.atribuicoes = newState.atribuicoes
+        .filter(a => {
+            if(!validDisciplinaIds.has(a.disciplinaId)) {
+                console.warn(`Removing orphaned atribuicao with invalid disciplinaId: ${a.disciplinaId}`, a);
+                return false;
             }
-            return prof;
-        }).filter(Boolean); // Remove null/undefined entries
-    }
+            return true;
+        })
+        .map(a => ({
+            ...a,
+            professores: a.professores.filter(pId => validProfessorIds.has(pId))
+        }));
 
-    // Deeply sanitize the grade array to prevent runtime errors from corrupted data.
-    if (Array.isArray(newState.grade)) {
-        newState.grade = newState.grade.filter(slot => {
-            if (!slot || typeof slot !== 'object') return false;
-            const requiredKeys: (keyof GradeSlot)[] = ['id', 'turmaId', 'dia', 'horario', 'disciplinaId', 'professorId'];
-            // Ensure all required keys exist and are non-empty strings
-            return requiredKeys.every(key => typeof slot[key] === 'string' && slot[key]);
-        });
-    }
-    
-    // Create a set of valid turma IDs for quick lookups.
-    const validTurmaIds = new Set(newState.turmas.map(t => t.id));
-
-    // Also filter out grade slots that point to a non-existent turma.
     newState.grade = newState.grade.filter(slot => {
-        if (!validTurmaIds.has(slot.turmaId)) {
-            console.warn(`Removing orphaned grade slot with invalid turmaId: ${slot.turmaId}`, slot);
+        const isTurmaValid = validTurmaIds.has(slot.turmaId);
+        const isDisciplinaValid = validDisciplinaIds.has(slot.disciplinaId);
+        const isProfessorValid = validProfessorIds.has(slot.professorId);
+        if (!isTurmaValid || !isDisciplinaValid || !isProfessorValid) {
+            console.warn('Removing orphaned grade slot:', { slot, isTurmaValid, isDisciplinaValid, isProfessorValid });
             return false;
         }
         return true;
@@ -114,6 +162,14 @@ const pendingChangesRef = { current: new Map<string, any>() };
 const addChange = (field: keyof AppState, value: any) => {
     pendingChangesRef.current.set(field, value);
 };
+
+// Helper function to sanitize string inputs and prevent XSS.
+const sanitizeString = (str: string | undefined): string => {
+  if (!str) return '';
+  // A simple sanitizer to remove HTML tags. Not as robust as DOMPurify, but prevents basic XSS.
+  return str.replace(/<[^>]*>?/gm, '');
+};
+
 
 const dataReducer = (state: AppState, action: Action): AppState => {
   switch (action.type) {
@@ -185,12 +241,14 @@ const dataReducer = (state: AppState, action: Action): AppState => {
     }
     // Cursos
     case 'ADD_CURSO': {
-        const newCursos = [...state.cursos, action.payload];
+        const sanitizedPayload: Curso = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newCursos = [...state.cursos, sanitizedPayload];
         addChange('cursos', newCursos);
         return { ...state, cursos: newCursos };
     }
     case 'UPDATE_CURSO': {
-        const newCursos = state.cursos.map(c => c.id === action.payload.id ? action.payload : c);
+        const sanitizedPayload: Curso = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newCursos = state.cursos.map(c => c.id === sanitizedPayload.id ? sanitizedPayload : c);
         addChange('cursos', newCursos);
         return { ...state, cursos: newCursos };
     }
@@ -221,12 +279,14 @@ const dataReducer = (state: AppState, action: Action): AppState => {
     }
     // Turmas
     case 'ADD_TURMA': {
-        const newTurmas = [...state.turmas, action.payload];
+        const sanitizedPayload: Turma = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newTurmas = [...state.turmas, sanitizedPayload];
         addChange('turmas', newTurmas);
         return { ...state, turmas: newTurmas };
     }
     case 'UPDATE_TURMA': {
-        const newTurmas = state.turmas.map(t => t.id === action.payload.id ? action.payload : t);
+        const sanitizedPayload: Turma = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newTurmas = state.turmas.map(t => t.id === sanitizedPayload.id ? sanitizedPayload : t);
         addChange('turmas', newTurmas);
         return { ...state, turmas: newTurmas };
     }
@@ -253,12 +313,14 @@ const dataReducer = (state: AppState, action: Action): AppState => {
     }
     // Disciplinas
     case 'ADD_DISCIPLINA': {
-        const newDisciplinas = [...state.disciplinas, action.payload];
+        const sanitizedPayload: Disciplina = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newDisciplinas = [...state.disciplinas, sanitizedPayload];
         addChange('disciplinas', newDisciplinas);
         return { ...state, disciplinas: newDisciplinas };
     }
     case 'UPDATE_DISCIPLINA': {
-        const newDisciplinas = state.disciplinas.map(d => d.id === action.payload.id ? action.payload : d);
+        const sanitizedPayload: Disciplina = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newDisciplinas = state.disciplinas.map(d => d.id === sanitizedPayload.id ? sanitizedPayload : d);
         addChange('disciplinas', newDisciplinas);
         return { ...state, disciplinas: newDisciplinas };
     }
@@ -280,20 +342,22 @@ const dataReducer = (state: AppState, action: Action): AppState => {
     }
     // Professores
     case 'ADD_PROFESSOR': {
-        const newProfessores = [...state.professores, action.payload];
+        const sanitizedPayload: Professor = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newProfessores = [...state.professores, sanitizedPayload];
         addChange('professores', newProfessores);
         return { ...state, professores: newProfessores };
     }
     case 'UPDATE_PROFESSOR': {
-        const newProfessores = state.professores.map(p => p.id === action.payload.id ? action.payload : p);
+        const sanitizedPayload: Professor = { ...action.payload, nome: sanitizeString(action.payload.nome) };
+        const newProfessores = state.professores.map(p => p.id === sanitizedPayload.id ? sanitizedPayload : p);
         addChange('professores', newProfessores);
         return { ...state, professores: newProfessores };
     }
     case 'BATCH_UPDATE_PROFESSORS': {
         const updatedProfessorsMap = new Map(action.payload.professors.map(p => [p.id, p]));
-        const newProfessors = state.professores.map(p => updatedProfessorsMap.get(p.id) || p);
-        addChange('professores', newProfessors);
-        return { ...state, professores: newProfessors };
+        const newProfessores = state.professores.map(p => updatedProfessorsMap.get(p.id) || p);
+        addChange('professores', newProfessores);
+        return { ...state, professores: newProfessores };
     }
     case 'DELETE_PROFESSOR': {
         const newProfessores = state.professores.filter(p => p.id !== action.payload.id);
@@ -558,6 +622,12 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
     } else if (action.type !== 'SET_ALERTS') { // Do not record alert-only changes in history
        history = history.slice(0, historyIndex + 1);
        history.push(nextState);
+
+       const MAX_HISTORY = 50;
+       if (history.length > MAX_HISTORY) {
+         history.splice(0, history.length - MAX_HISTORY);
+       }
+       
        historyIndex = history.length - 1;
     }
     
@@ -570,22 +640,41 @@ const statefulReducer = (state: AppState, action: Action): AppState => {
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(statefulReducer, initialState, (initial) => {
-    let loadedState = initial;
-    if (!FIREBASE_ENABLED) {
-        try {
+    // This entire block must be fail-safe to prevent app crashes on load.
+    try {
+        if (!FIREBASE_ENABLED) {
             const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (savedData) {
-                loadedState = sanitizeLoadedState(JSON.parse(savedData));
+                // All parsing, sanitizing, and validating happens inside the try block.
+                const parsedData = JSON.parse(savedData);
+                const sanitizedData = sanitizeLoadedState(parsedData);
+                const validatedState = { ...sanitizedData, alertas: validateState(sanitizedData) };
+                history = [validatedState];
+                historyIndex = 0;
+                return validatedState;
             }
-        } catch (error) {
-            console.error("Failed to load state from localStorage", error);
         }
+        // If no saved data or if Firebase is enabled, start with a clean, validated state.
+        const validatedInitialState = { ...initial, alertas: validateState(initial) };
+        history = [validatedInitialState];
+        historyIndex = 0;
+        return validatedInitialState;
+    } catch (error) {
+        console.error("CRITICAL ERROR: Failed to initialize state from localStorage. Data might be corrupted. Resetting application state.", error);
+        
+        // If any error occurs, clear the corrupted data and start fresh.
+        try {
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+        } catch (removeError) {
+            console.error("Failed to remove corrupted localStorage key.", removeError);
+        }
+        
+        // Return a clean, validated initial state to ensure the app can load.
+        const validatedInitialState = { ...initialState, alertas: validateState(initialState) };
+        history = [validatedInitialState];
+        historyIndex = 0;
+        return validatedInitialState;
     }
-    
-    const validatedState = { ...loadedState, alertas: validateState(loadedState) };
-    history = [validatedState];
-    historyIndex = 0;
-    return validatedState;
   });
 
   const isRemoteChange = useRef(false);
@@ -611,6 +700,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (remoteTimestamp > localTimestamp) {
             console.log("Received newer remote update from Firestore. Applying.");
             isRemoteChange.current = true; // Flag that the next state change is from remote
+            
+            // Clear pending local changes to prevent overwriting the remote state with stale data
+            pendingChangesRef.current.clear();
+            
             dispatch({ type: 'SET_STATE', payload: dataFromDb });
           } else {
              console.log(`Ignored stale remote update. Remote: ${remoteTimestamp}, Local: ${localTimestamp}`);
@@ -661,11 +754,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Set initial presence and start heartbeat
         userDocRef.set({
           ...presenceData,
-          lastSeen: window.firebase.firestore.FieldValue.serverTimestamp()
+          lastSeen: firebase.default.firestore.FieldValue.serverTimestamp()
         });
         
         presenceInterval = window.setInterval(() => {
-          userDocRef.update({ lastSeen: window.firebase.firestore.FieldValue.serverTimestamp() });
+          userDocRef.update({ lastSeen: firebase.default.firestore.FieldValue.serverTimestamp() });
         }, 15000); // 15 seconds
 
         // Listen for all online users
@@ -746,7 +839,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 dispatch({ type: 'SET_SAVE_STATUS', payload: 'error' });
             }
         }
-    }, 1000); // Debounce for 1 second
+    }, 2000); // Debounce for 2 seconds
 
     return () => clearTimeout(handler);
   }, [state]); // Effect runs on any state change to check for pending updates.

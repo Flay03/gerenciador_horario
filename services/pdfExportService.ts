@@ -6,6 +6,10 @@ import { DIAS_SEMANA, HORARIOS_MANHA, HORARIOS_TARDE, HORARIOS_NOITE_REGULAR, HO
 
 // This function remains unchanged as requested, for individual professor exports.
 export const generatePdfForProfessor = (professor: Professor, grade: GradeSlot[], turmas: Turma[], disciplinas: any[]): { doc: jsPDF | null, error?: string } => {
+    if (!professor || !grade || !turmas || !disciplinas) {
+      return { doc: null, error: 'Dados incompletos para gerar o PDF do professor.' };
+    }
+
     // --- 1. Data Preparation ---
     const professorGrade = grade.filter(slot => slot.professorId === professor.id);
     const totalAulas = professorGrade.reduce((total, slot) => {
@@ -396,6 +400,10 @@ const drawPageFrame = (
  */
 export const exportGridToPdf = (state: AppState, gridType: GridType): { doc: jsPDF | null, error?: string } => {
     const { ano, cursos, turmas, grade, disciplinas, professores } = state;
+
+    if (!turmas || !grade || !disciplinas || !professores || !cursos) {
+      return { doc: null, error: 'Dados incompletos para gerar o PDF da grade.' };
+    }
 
     const allVisibleTurmas = turmas
         .filter(t => t.isModular === (gridType === 'modular'))

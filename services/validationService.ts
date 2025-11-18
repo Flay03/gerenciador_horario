@@ -5,9 +5,35 @@ import { DIAS_SEMANA } from '../constants';
 
 // Helper to convert "HH:MM-HH:MM" to start/end minutes from day start
 export const timeToMinutes = (time: string): { start: number; end: number } => {
+  // Robustness check to prevent crashes from malformed localStorage data
+  if (typeof time !== 'string' || !time.includes('-') || !time.includes(':')) {
+    console.error(`[validationService] Invalid time format passed to timeToMinutes: "${time}"`);
+    return { start: 0, end: 0 };
+  }
+
   const [startStr, endStr] = time.split('-');
-  const [startH, startM] = startStr.split(':').map(Number);
-  const [endH, endM] = endStr.split(':').map(Number);
+  
+  if (!startStr || !endStr) {
+      console.error(`[validationService] Incomplete time format (missing start or end): "${time}"`);
+      return { start: 0, end: 0 };
+  }
+
+  const startParts = startStr.split(':');
+  const endParts = endStr.split(':');
+
+  if (startParts.length !== 2 || endParts.length !== 2) {
+      console.error(`[validationService] Malformed time parts (HH:MM expected): "${time}"`);
+      return { start: 0, end: 0 };
+  }
+
+  const [startH, startM] = startParts.map(Number);
+  const [endH, endM] = endParts.map(Number);
+
+  if (isNaN(startH) || isNaN(startM) || isNaN(endH) || isNaN(endM)) {
+      console.error(`[validationService] Non-numeric values found in time string: "${time}"`);
+      return { start: 0, end: 0 };
+  }
+  
   return {
     start: startH * 60 + startM,
     end: endH * 60 + endM,

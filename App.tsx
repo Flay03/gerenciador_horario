@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useState } from 'react';
 import { DataProvider, useData } from './context/DataContext';
 import TimetableGrid from './components/TimetableGrid/TimetableGrid';
@@ -16,6 +12,7 @@ import Toast from './components/Toast';
 import ClearDataModal from './components/ClearDataModal';
 import LoadExampleModal from './components/LoadExampleModal';
 import { GridType } from './types';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export type View = 'dashboard' | 'grid' | 'management' | 'professor';
 
@@ -95,7 +92,9 @@ const AppUI: React.FC = () => {
         />
       </header>
       <main className="flex flex-1 overflow-hidden relative">
-        {renderMainContent()}
+        <ErrorBoundary>
+          {renderMainContent()}
+        </ErrorBoundary>
         {currentView === 'grid' && (
           <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}

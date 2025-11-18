@@ -1,35 +1,35 @@
+
 import React, { useState, useEffect } from 'react';
 import App from '../App';
 import { auth, db } from '../firebaseConfig';
-import type firebase from 'firebase/compat/app'; // Import for types only
+import * as firebase from 'firebase/compat/app'; // Use namespace import for consistency
 import { FIREBASE_ENABLED } from '../config';
+import ErrorBoundary from './ErrorBoundary';
 
-
-// Use a type import to safely get the User type
 type User = firebase.default.User;
-
 type AuthStatus = 'loading' | 'unauthenticated' | 'authenticated' | 'unauthorized';
 
 // Helper component for the specific unauthorized domain error
 const UnauthorizedDomainError: React.FC<{ onRetry: () => void }> = ({ onRetry }) => {
   const [copied, setCopied] = useState(false);
-  const [domain, setDomain] = useState<string | null>(null); // State for the domain, initialized to null
-  const projectId = "gerenciadorhorario-c62e9"; // From firebaseConfig
+  const [domain, setDomain] = useState<string | null>(null);
+  const projectId = "gerenciadorhorario-c62e9";
   const consoleUrl = `https://console.firebase.google.com/u/0/project/${projectId}/authentication/providers`;
 
-  // Set the domain in useEffect to ensure it runs on the client
   useEffect(() => {
-    // Fallback in case hostname is empty for any reason
     setDomain(window.location.hostname || 'domínio não detectado');
   }, []);
 
+  useEffect(() => {
+    if (copied) {
+        const timerId = setTimeout(() => setCopied(false), 2000);
+        return () => clearTimeout(timerId);
+    }
+  }, [copied]);
 
   const handleCopyToClipboard = () => {
     if (domain && domain !== 'domínio não detectado') {
-        navigator.clipboard.writeText(domain).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
-        });
+        navigator.clipboard.writeText(domain).then(() => setCopied(true));
     }
   };
 
@@ -92,153 +92,162 @@ const UnauthorizedDomainError: React.FC<{ onRetry: () => void }> = ({ onRetry })
   );
 };
 
+// This new component contains all the hooks and logic for Firebase auth.
+const FirebaseEnabledAuth: React.FC = () => {
+    const [authStatus, setAuthStatus] = useState<AuthStatus>('loading');
+    const [user, setUser] = useState<User | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
-const FirebaseAuth: React.FC = () => {
-  if (!FIREBASE_ENABLED) {
-    return <App />;
-  }
-
-  const [authStatus, setAuthStatus] = useState<AuthStatus>('loading');
-  const [user, setUser] = useState<User | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleLogin = async () => {
-    // Use the global window.firebase object to create the provider
-    const provider = new window.firebase.auth.GoogleAuthProvider();
-    setAuthStatus('loading');
-    setError(null);
-    try {
-      // The `auth` service is imported from firebaseConfig and ready to use
-      await auth.signInWithPopup(provider);
-    } catch (error: any) {
-      console.error("Firebase login error:", error);
-      let errorMessage = "Falha ao fazer login. Por favor, tente novamente.";
-      if (error.code) {
-          switch (error.code) {
-              case 'auth/popup-closed-by-user':
-              case 'auth/cancelled-popup-request':
-                  setAuthStatus('unauthenticated');
-                  return;
-              case 'auth/popup-blocked':
-                  errorMessage = "O popup de login foi bloqueado pelo seu navegador. Por favor, habilite popups para este site e tente novamente.";
-                  break;
-              case 'auth/operation-not-allowed':
-                  errorMessage = "O login com Google não está habilitado para este aplicativo. Por favor, contate o administrador.";
-                  break;
-              case 'auth/unauthorized-domain':
-                  setError('auth/unauthorized-domain');
-                  setAuthStatus('unauthenticated');
-                  return;
-          }
-      }
-      setError(errorMessage);
-      setAuthStatus('unauthenticated');
-    }
-  };
-
-  useEffect(() => {
-    // The `auth` service is ready to use
-    const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
-      setAuthStatus('loading');
-      
-      if (currentUser && currentUser.email) {
-        setUser(currentUser);
-        // The `db` service is ready to use
-        const userDocRef = db.doc(`allowed_users/${currentUser.email}`);
+    const handleLogin = async () => {
+        if (!auth) return;
+        
+        const provider = new firebase.default.auth.GoogleAuthProvider();
+        setAuthStatus('loading');
+        setError(null);
         try {
-          const docSnap = await userDocRef.get();
-          if (docSnap.exists) {
-            setAuthStatus('authenticated');
-            setError(null);
-          } else {
-            setAuthStatus('unauthorized');
-          }
-        } catch (e: any) {
-            console.error("Error checking Firestore permissions:", e);
-            // Handle specific Firestore errors if needed, e.g., permission denied
-            if (e.code === 'permission-denied' || e.code === 'unauthenticated') {
-               setError("Erro de permissão ao verificar usuário. Tente novamente.");
-            } else {
-               setError("Erro ao verificar permissões. Tente novamente mais tarde.");
+            await auth.signInWithPopup(provider);
+        } catch (error: any) {
+            console.error("Firebase login error:", error);
+            let errorMessage = "Falha ao fazer login. Por favor, tente novamente.";
+            if (error.code) {
+                switch (error.code) {
+                    case 'auth/popup-closed-by-user':
+                    case 'auth/cancelled-popup-request':
+                        setAuthStatus('unauthenticated');
+                        return;
+                    case 'auth/popup-blocked':
+                        errorMessage = "O popup de login foi bloqueado pelo seu navegador. Por favor, habilite popups para este site e tente novamente.";
+                        break;
+                    case 'auth/operation-not-allowed':
+                        errorMessage = "O login com Google não está habilitado para este aplicativo. Por favor, contate o administrador.";
+                        break;
+                    case 'auth/unauthorized-domain':
+                        setError('auth/unauthorized-domain');
+                        setAuthStatus('unauthenticated');
+                        return;
+                }
             }
+            setError(errorMessage);
             setAuthStatus('unauthenticated');
-            await auth.signOut();
         }
-      } else {
-        setUser(null);
-        setAuthStatus('unauthenticated');
-         if (error !== 'auth/unauthorized-domain') {
-          setError(null);
+    };
+    
+    useEffect(() => {
+        if (!auth || !db) {
+            setAuthStatus('unauthenticated');
+            setError("Configuração do Firebase está incompleta.");
+            return;
         }
-      }
-    });
 
-    return () => unsubscribe();
-  }, [error]); // Re-run effect if the error state changes, e.g., from unauthorized-domain
+        const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+            setAuthStatus('loading');
+            
+            if (currentUser && currentUser.email) {
+                setUser(currentUser);
+                const userDocRef = db.doc(`allowed_users/${currentUser.email}`);
+                try {
+                    const docSnap = await userDocRef.get();
+                    if (docSnap.exists) {
+                        setAuthStatus('authenticated');
+                        setError(null);
+                    } else {
+                        setAuthStatus('unauthorized');
+                    }
+                } catch (e: any) {
+                    console.error("Error checking Firestore permissions:", e);
+                    if (e.code === 'permission-denied' || e.code === 'unauthenticated') {
+                        setError("Erro de permissão ao verificar usuário. Tente novamente.");
+                    } else {
+                        setError("Erro ao verificar permissões. Tente novamente mais tarde.");
+                    }
+                    setAuthStatus('unauthenticated');
+                    await auth.signOut();
+                }
+            } else {
+                setUser(null);
+                setAuthStatus('unauthenticated');
+                if (error !== 'auth/unauthorized-domain') {
+                    setError(null);
+                }
+            }
+        });
+        return () => unsubscribe();
+    }, [error]);
 
-  const handleLogout = async () => {
-    await auth.signOut();
-    setError(null);
-  };
+    const handleLogout = async () => {
+        if (!auth) return;
+        await auth.signOut();
+        setError(null);
+    };
 
-  if (authStatus === 'authenticated') {
-    return <App />;
+    if (authStatus === 'authenticated') {
+        return <ErrorBoundary><App /></ErrorBoundary>;
+    }
+    
+    const renderContent = () => {
+         if (error === 'auth/unauthorized-domain') {
+           return <UnauthorizedDomainError onRetry={handleLogin} />;
+         }
+    
+         switch(authStatus) {
+            case 'loading':
+                return <p className="text-gray-600 text-center">Verificando...</p>;
+            case 'unauthorized':
+                return (
+                    <>
+                        <p className="text-center text-red-600 mb-4">
+                            Acesso negado. O e-mail <strong>{user?.email}</strong> não tem permissão para acessar este sistema.
+                        </p>
+                        <button
+                            onClick={handleLogout}
+                            className="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
+                        >
+                            Sair e tentar com outra conta
+                        </button>
+                    </>
+                );
+            case 'unauthenticated':
+            default:
+                return (
+                    <>
+                        <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Acesso ao Sistema</h2>
+                        <p className="text-center text-gray-600 mb-6">Por favor, utilize sua conta Google para continuar.</p>
+                        {error && <p className="text-sm text-red-600 mb-4 text-center">{error}</p>}
+                        <button
+                            onClick={handleLogin}
+                            className="w-full flex items-center justify-center bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        >
+                            <svg className="w-5 h-5 mr-2" viewBox="0 0 48 48">
+                                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.53-4.18 7.13-10.12 7.13-17.65z"></path>
+                                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                                <path fill="none" d="M0 0h48v48H0z"></path>
+                            </svg>
+                            Entrar com Google
+                        </button>
+                    </>
+                );
+         }
+    };
+    
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+            <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm">
+                {renderContent()}
+            </div>
+        </div>
+    );
+}
+
+// The main component is now a simple router. No hooks here.
+const FirebaseAuth: React.FC = () => {
+  if (FIREBASE_ENABLED) {
+    return <FirebaseEnabledAuth />;
   }
   
-  const renderContent = () => {
-     if (error === 'auth/unauthorized-domain') {
-       return <UnauthorizedDomainError onRetry={handleLogin} />;
-     }
-
-     switch(authStatus) {
-        case 'loading':
-            return <p className="text-gray-600 text-center">Verificando...</p>;
-        case 'unauthorized':
-            return (
-                <>
-                    <p className="text-center text-red-600 mb-4">
-                        Acesso negado. O e-mail <strong>{user?.email}</strong> não tem permissão para acessar este sistema.
-                    </p>
-                    <button
-                        onClick={handleLogout}
-                        className="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
-                    >
-                        Sair e tentar com outra conta
-                    </button>
-                </>
-            );
-        case 'unauthenticated':
-        default:
-            return (
-                <>
-                    <h2 className="text-2xl font-bold text-center text-gray-800 mb-6">Acesso ao Sistema</h2>
-                    <p className="text-center text-gray-600 mb-6">Por favor, utilize sua conta Google para continuar.</p>
-                    {error && <p className="text-sm text-red-600 mb-4 text-center">{error}</p>}
-                    <button
-                        onClick={handleLogin}
-                        className="w-full flex items-center justify-center bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                    >
-                        <svg className="w-5 h-5 mr-2" viewBox="0 0 48 48">
-                            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.53-4.18 7.13-10.12 7.13-17.65z"></path>
-                            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                            <path fill="none" d="M0 0h48v48H0z"></path>
-                        </svg>
-                        Entrar com Google
-                    </button>
-                </>
-            );
-     }
-  }
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm">
-        {renderContent()}
-      </div>
-    </div>
-  );
+  // Offline mode: render the app directly and unconditionally.
+  return <ErrorBoundary><App /></ErrorBoundary>;
 };
 
 export default FirebaseAuth;

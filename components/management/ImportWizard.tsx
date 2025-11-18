@@ -1,5 +1,3 @@
-
-
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
 import { AppState, Turma } from '../../types';
@@ -19,6 +17,12 @@ const ImportWizard: React.FC = () => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
+      if (selectedFile.size > 5 * 1024 * 1024) { // 5MB limit
+          setError('O arquivo é muito grande. O limite é de 5MB.');
+          setFile(null);
+          e.target.value = ''; // Reset the input
+          return;
+      }
       setFile(selectedFile);
       setError(null);
     }
