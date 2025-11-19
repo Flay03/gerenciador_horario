@@ -41,25 +41,6 @@ const parseSlotId = (id: string) => {
   return { turmaId, dia, horario };
 };
 
-// Helper to strictly sanitize availability object
-const sanitizeAvailability = (disp: any): Record<string, string[]> => {
-    const clean: Record<string, string[]> = {};
-    if (!disp || typeof disp !== 'object') return {};
-    
-    Object.keys(disp).forEach(key => {
-        const val = disp[key];
-        if (Array.isArray(val)) {
-            clean[key] = val.map(String); // Ensure items are strings
-        } else if (typeof val === 'string') {
-             // Recover stringified single values if possible
-             clean[key] = [val];
-        } else {
-             clean[key] = [];
-        }
-    });
-    return clean;
-};
-
 const sanitizeLoadedState = (loadedState: any): AppState => {
     const newState = { ...initialState, ...loadedState };
     if (typeof newState.ano !== 'number' || isNaN(newState.ano)) newState.ano = new Date().getFullYear();
@@ -73,13 +54,8 @@ const sanitizeLoadedState = (loadedState: any): AppState => {
       newState.turmas = newState.turmas.map((t: any) => t ? { ...t, isModular: !!t.isModular } : null).filter(Boolean) as Turma[];
     }
     
-    if (Array.isArray(newState.professores)) {
-        newState.professores = newState.professores.filter(Boolean).map((prof: any) => ({
-            ...prof,
-            disponibilidade: sanitizeAvailability(prof.disponibilidade)
-        }));
-    }
-
+    // We can now rely on the Schema validation later to clean up deeper issues, 
+    // but basic array structure is ensured here.
     return newState;
 };
 
@@ -251,12 +227,18 @@ const dataReducer = (state: AppState, action: DataAction): AppState => {
     }
     case 'ADD_PROFESSOR': {
          try {
-            // Force sanitization before validation to avoid "received string" errors if UI sends bad data
-            const payload = {
-                ...action.payload,
-                disponibilidade: sanitizeAvailability(action.payload.disponibilidade)
-            };
-            const validated = ProfessorSchema.parse(payload);
+            // Manual sanitization safeguard before parsing
+            const safePayload = { ...action.payload };
+            if (safePayload.disponibilidade) {
+                const safeDisp: any = {};
+                Object.keys(safePayload.disponibilidade).forEach(k => {
+                    const val = safePayload.disponibilidade[k];
+                    safeDisp[k] = Array.isArray(val) ? val : (typeof val === 'string' ? [val] : []);
+                });
+                safePayload.disponibilidade = safeDisp;
+            }
+
+            const validated = ProfessorSchema.parse(safePayload);
             const newProfessores = [...state.professores, validated];
             addChange('professores', newProfessores);
             return { ...state, professores: newProfessores };
@@ -264,30 +246,37 @@ const dataReducer = (state: AppState, action: DataAction): AppState => {
     }
     case 'UPDATE_PROFESSOR': {
          try {
-            // Force sanitization before validation
-            const payload = {
-                ...action.payload,
-                disponibilidade: sanitizeAvailability(action.payload.disponibilidade)
-            };
-            const validated = ProfessorSchema.parse(payload);
+            // Manual sanitization safeguard before parsing:
+            // Forces strings into arrays to prevent "invalid_type" before the schema transform runs
+            const safePayload = { ...action.payload };
+            if (safePayload.disponibilidade) {
+                const safeDisp: any = {};
+                Object.keys(safePayload.disponibilidade).forEach(k => {
+                    const val = safePayload.disponibilidade[k];
+                    if (typeof val === 'string') {
+                         safeDisp[k] = [val];
+                    } else if (Array.isArray(val)) {
+                         safeDisp[k] = val;
+                    } else {
+                         safeDisp[k] = [];
+                    }
+                });
+                safePayload.disponibilidade = safeDisp;
+            }
+
+            const validated = ProfessorSchema.parse(safePayload);
             const newProfessores = state.professores.map(p => p.id === validated.id ? validated : p);
             addChange('professores', newProfessores);
             return { ...state, professores: newProfessores };
          } catch (e) { Logger.error('Invalid Professor', e); return state; }
     }
     case 'BATCH_UPDATE_PROFESSORS': {
-         const newProfessores = state.professores.map(p => {
-             const updated = action.payload.professors.find(up => up.id === p.id);
-             if (updated) {
-                 return {
-                     ...updated,
-                     disponibilidade: sanitizeAvailability(updated.disponibilidade)
-                 };
-             }
-             return p;
-         });
-         addChange('professores', newProfessores);
-         return { ...state, professores: newProfessores };
+         try {
+             const updatedMap = new Map(action.payload.professors.map(p => [p.id, ProfessorSchema.parse(p)]));
+             const newProfessores = state.professores.map(p => updatedMap.has(p.id) ? updatedMap.get(p.id)! : p);
+             addChange('professores', newProfessores);
+             return { ...state, professores: newProfessores };
+         } catch (e) { Logger.error('Invalid Batch Professor Update', e); return state; }
     }
     case 'DELETE_PROFESSOR': {
         const newProfessores = state.professores.filter(p => p.id !== action.payload.id);

@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Grade de Horários Modular - Versão 3.1",
+  "name": "Grade de Horários Modular - Versão 3.3",
   "description": "A web application to assist in manually creating a high school/technical school timetable. It runs entirely in the browser, uses localStorage for data persistence, and provides visual alerts for rule violations without blocking user actions.",
   "requestFramePermissions": []
 }

@@ -194,9 +194,16 @@ const ProfessoresManager: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleOpenEditModal = () => {
-        if (selectedIds.size === 0) return;
-        const selectedProfs = sortedProfessores.filter(p => selectedIds.has(p.id));
+    const handleOpenEditModal = (explicitProfessor?: Professor) => {
+        let selectedProfs: Professor[] = [];
+
+        if (explicitProfessor) {
+            selectedProfs = [explicitProfessor];
+        } else {
+            if (selectedIds.size === 0) return;
+            selectedProfs = sortedProfessores.filter(p => selectedIds.has(p.id));
+        }
+        
         setProfessorsToEdit(selectedProfs);
 
         if (selectedProfs.length === 1) {
@@ -231,7 +238,7 @@ const ProfessoresManager: React.FC = () => {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Strictly sanitize availability before submission to guarantee Zod compliance
+        // CRÍTICO: Sanitize SEMPRE imediatamente antes de salvar
         const safeAvailability = sanitizeDisponibilidade(formData.disponibilidade);
 
         if (professorsToEdit.length > 0) { // Edit mode
@@ -240,7 +247,7 @@ const ProfessoresManager: React.FC = () => {
                 const updatedProf = {
                     ...professorsToEdit[0],
                     nome: formData.nome,
-                    disponibilidade: safeAvailability
+                    disponibilidade: safeAvailability // Use a versão sanitizada
                 };
                 dispatch({ type: 'UPDATE_PROFESSOR', payload: updatedProf });
             } else {
@@ -261,6 +268,10 @@ const ProfessoresManager: React.FC = () => {
         setSelectedIds(new Set());
     };
   
+    const handleDeleteClick = (id: string) => {
+        setConfirmModal({ isOpen: true, ids: [id] });
+    };
+
     const handleDeleteSelectedClick = () => {
         if (selectedIds.size === 0) return;
         setConfirmModal({ isOpen: true, ids: Array.from(selectedIds) });
@@ -289,7 +300,9 @@ const ProfessoresManager: React.FC = () => {
         if (modalContentRef.current) {
             scrollPositionRef.current = modalContentRef.current.scrollTop;
         }
-        setFormData(prev => ({ ...prev, disponibilidade: newDisponibilidade }));
+        // FORÇA sanitização imediata ao mudar disponibilidade
+        const sanitized = sanitizeDisponibilidade(newDisponibilidade);
+        setFormData(prev => ({ ...prev, disponibilidade: sanitized }));
     };
 
     useLayoutEffect(() => {
@@ -304,7 +317,7 @@ const ProfessoresManager: React.FC = () => {
         'Editar Professor';
 
     return (
-        <div>
+        <div className="relative pb-20">
             <div className="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                 <h2 className="text-2xl font-bold">Gerenciar Professores</h2>
                 <div className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full md:w-auto">
@@ -313,52 +326,116 @@ const ProfessoresManager: React.FC = () => {
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
                         placeholder="Buscar por nome..."
-                        className="block w-full sm:w-48 pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                        className="block w-full sm:w-64 pl-3 pr-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
                     />
-                    <button onClick={handleOpenAddModal} className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Adicionar</button>
-                    <button onClick={handleOpenEditModal} disabled={selectedIds.size === 0} className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400">Editar Selecionados</button>
-                    <button onClick={handleDeleteSelectedClick} disabled={selectedIds.size === 0} className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-gray-400">Excluir Selecionados</button>
+                    <button onClick={handleOpenAddModal} className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Adicionar
+                    </button>
                 </div>
             </div>
 
             <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-                <div className="px-4 sm:px-6 py-3 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+                <div className="px-4 sm:px-6 py-3 border-b border-gray-200 bg-gray-50 rounded-t-lg flex justify-between items-center">
                     <div className="flex items-center">
                         <input
                             type="checkbox"
-                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                             checked={isAllSelected}
                             onChange={handleToggleSelectAll}
                             aria-label="Selecionar todos os professores"
                         />
                         <span className="ml-3 text-sm font-medium text-gray-600">
-                            {selectedIds.size > 0 ? `${selectedIds.size} selecionado(s)` : `Selecionar Todos (${filteredProfessores.length})`}
+                            Selecionar Todos
                         </span>
                     </div>
+                    <span className="text-xs text-gray-500 font-medium uppercase tracking-wider mr-10">Ações</span>
                 </div>
                 <div className="divide-y divide-gray-200">
                     {filteredProfessores.length > 0 ? (
                         filteredProfessores.map((p) => (
-                            <div key={p.id} className="px-4 sm:px-6 py-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors">
-                                <label htmlFor={`prof-select-${p.id}`} className="flex items-center cursor-pointer">
+                            <div key={p.id} className="px-4 sm:px-6 py-3 flex items-center justify-between hover:bg-gray-50/50 transition-colors group">
+                                <div className="flex items-center flex-1">
                                     <input
                                         id={`prof-select-${p.id}`}
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                                         checked={selectedIds.has(p.id)}
                                         onChange={() => handleToggleSelect(p.id)}
                                     />
-                                    <span className="ml-3 font-medium text-gray-800">{p.nome}</span>
-                                </label>
+                                    <label htmlFor={`prof-select-${p.id}`} className="ml-3 font-medium text-gray-800 cursor-pointer flex-1 select-none">
+                                        {p.nome}
+                                    </label>
+                                </div>
+                                <div className="flex items-center space-x-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                        onClick={() => handleOpenEditModal(p)}
+                                        className="p-2 text-gray-400 hover:text-indigo-600 rounded-full hover:bg-indigo-50 transition-colors" 
+                                        title="Editar Professor"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" />
+                                        </svg>
+                                    </button>
+                                    <button 
+                                        onClick={() => handleDeleteClick(p.id)}
+                                        className="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-red-50 transition-colors" 
+                                        title="Excluir Professor"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                         ))
                     ) : (
-                        <div className="px-6 py-4 text-center text-gray-500">
+                        <div className="px-6 py-8 text-center text-gray-500 bg-gray-50">
                             {state.professores.length === 0 ? 'Nenhum professor cadastrado.' : 'Nenhum professor encontrado para o filtro selecionado.'}
                         </div>
                     )}
                 </div>
             </div>
+
+            {/* Bulk Actions Bubble */}
+            {selectedIds.size > 0 && (
+                <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 shadow-xl rounded-full px-6 py-3 flex items-center space-x-4 z-40 animate-fade-in-up">
+                    <span className="font-medium text-gray-700 whitespace-nowrap">
+                        {selectedIds.size} selecionado(s)
+                    </span>
+                    <div className="h-5 w-px bg-gray-300"></div>
+                    <button 
+                        onClick={() => handleOpenEditModal()}
+                        className="flex items-center text-indigo-600 hover:text-indigo-800 font-medium text-sm transition-colors"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" />
+                        </svg>
+                        Editar
+                    </button>
+                    <button 
+                        onClick={handleDeleteSelectedClick}
+                        className="flex items-center text-red-600 hover:text-red-800 font-medium text-sm transition-colors"
+                    >
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Excluir
+                    </button>
+                    <div className="h-5 w-px bg-gray-300"></div>
+                    <button 
+                        onClick={() => setSelectedIds(new Set())}
+                        className="text-gray-400 hover:text-gray-600"
+                        title="Limpar seleção"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            )}
 
             <Modal
                 isOpen={isModalOpen}
@@ -431,6 +508,14 @@ const ProfessoresManager: React.FC = () => {
                 title={`Confirmar Exclusão de ${confirmModal.ids.length} Professor(es)`}
                 message={`Tem certeza que deseja excluir ${confirmModal.ids.length > 1 ? `os ${confirmModal.ids.length} professores selecionados` : 'este professor'}? Eles serão removidos de todas as atribuições e aulas permanentemente.`}
             />
+            
+            <style>{`
+                @keyframes fade-in-up {
+                    0% { opacity: 0; transform: translate(-50%, 10px); }
+                    100% { opacity: 1; transform: translate(-50%, 0); }
+                }
+                .animate-fade-in-up { animation: fade-in-up 0.3s ease-out forwards; }
+            `}</style>
         </div>
     );
 };

@@ -36,7 +36,26 @@ export const DisciplinaSchema = z.object({
 export const ProfessorSchema = z.object({
   id: IdSchema,
   nome: z.string().min(1).max(255),
-  disponibilidade: z.record(z.array(z.string())), // Key: Day, Value: Array of Time Slots
+  // Alteração crítica: Aceita z.any() nos valores para não falhar a validação de tipo inicial
+  // e usa .transform para converter strings ou nulos em arrays de string.
+  disponibilidade: z.record(z.string(), z.any()).transform((val) => {
+      if (!val || typeof val !== 'object') return {};
+      
+      const clean: Record<string, string[]> = {};
+      Object.keys(val).forEach((key) => {
+          const value = val[key];
+          if (Array.isArray(value)) {
+              clean[key] = value.map(String);
+          } else if (typeof value === 'string') {
+              // Recupera casos onde o horário foi salvo como string única
+              clean[key] = [value];
+          } else {
+              // Se for nulo, undefined ou número estranho
+              clean[key] = [];
+          }
+      });
+      return clean;
+  }), 
 });
 
 // Atribuicao Schema
