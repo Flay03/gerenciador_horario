@@ -1,9 +1,31 @@
+
 import React, { useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { Professor } from '../../types';
 import Modal from '../Modal';
 import { DIAS_SEMANA, HORARIOS_MANHA, HORARIOS_TARDE, HORARIOS_NOITE_REGULAR } from '../../constants';
 import ConfirmationModal from '../ConfirmationModal';
+
+// --- HELPER ---
+const sanitizeDisponibilidade = (disp: any): Record<string, string[]> => {
+    const clean: Record<string, string[]> = {};
+    if (disp && typeof disp === 'object') {
+        Object.keys(disp).forEach(key => {
+            const value = disp[key];
+            if (Array.isArray(value)) {
+                 // Ensure items are strings
+                 clean[key] = value.map(String);
+            } else if (typeof value === 'string') {
+                 // Recover stringified single values if possible
+                 clean[key] = [value];
+            } else {
+                 // If it's corrupted (e.g. number, null), reset to empty array
+                 clean[key] = [];
+            }
+        });
+    }
+    return clean;
+};
 
 // --- NEW COMPACT AVAILABILITY GRID COMPONENT ---
 
@@ -178,7 +200,12 @@ const ProfessoresManager: React.FC = () => {
         setProfessorsToEdit(selectedProfs);
 
         if (selectedProfs.length === 1) {
-            setFormData({ ...selectedProfs[0] });
+            // Sanitize availability when loading single professor to prevent "expected array, received string" errors
+            const prof = selectedProfs[0];
+            setFormData({ 
+                ...prof,
+                disponibilidade: sanitizeDisponibilidade(prof.disponibilidade)
+            });
         } else if (selectedProfs.length > 1) {
             // Calculate availability intersection for batch editing
             const intersectionDisp: Record<string, string[]> = {};
@@ -186,7 +213,7 @@ const ProfessoresManager: React.FC = () => {
             
             DIAS_SEMANA.forEach(dia => {
                 intersectionDisp[dia] = allHorarios.filter(horario => 
-                    selectedProfs.every(p => p.disponibilidade[dia]?.includes(horario))
+                    selectedProfs.every(p => (Array.isArray(p.disponibilidade[dia]) ? p.disponibilidade[dia] : []).includes(horario))
                 );
             });
 
@@ -204,21 +231,30 @@ const ProfessoresManager: React.FC = () => {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
+        // Strictly sanitize availability before submission to guarantee Zod compliance
+        const safeAvailability = sanitizeDisponibilidade(formData.disponibilidade);
+
         if (professorsToEdit.length > 0) { // Edit mode
-            if (professorsToEdit.length === 1 && !formData.nome.trim()) return;
-            
-            professorsToEdit.forEach(prof => {
+            if (professorsToEdit.length === 1) {
+                if (!formData.nome.trim()) return;
                 const updatedProf = {
-                    ...prof,
-                    nome: professorsToEdit.length === 1 ? formData.nome : prof.nome,
-                    disponibilidade: formData.disponibilidade
+                    ...professorsToEdit[0],
+                    nome: formData.nome,
+                    disponibilidade: safeAvailability
                 };
                 dispatch({ type: 'UPDATE_PROFESSOR', payload: updatedProf });
-            });
+            } else {
+                // Batch update mode
+                const professorsToUpdate = professorsToEdit.map(prof => ({
+                    ...prof,
+                    disponibilidade: safeAvailability
+                }));
+                dispatch({ type: 'BATCH_UPDATE_PROFESSORS', payload: { professors: professorsToUpdate } });
+            }
 
         } else { // Add mode
             if (!formData.nome.trim()) return;
-            dispatch({ type: 'ADD_PROFESSOR', payload: { id: `p${Date.now()}`, ...formData } });
+            dispatch({ type: 'ADD_PROFESSOR', payload: { id: `p${Date.now()}`, ...formData, disponibilidade: safeAvailability } });
         }
         
         handleCloseModal();
@@ -242,7 +278,9 @@ const ProfessoresManager: React.FC = () => {
         if (!selectedProfessorToCopy) return;
         const sourceProfessor = state.professores.find(p => p.id === selectedProfessorToCopy);
         if (sourceProfessor) {
-            const newDisponibilidade = JSON.parse(JSON.stringify(sourceProfessor.disponibilidade));
+            // Sanitize before copying to ensure we don't propagate corrupted data
+            const cleanDisp = sanitizeDisponibilidade(sourceProfessor.disponibilidade);
+            const newDisponibilidade = JSON.parse(JSON.stringify(cleanDisp));
             setFormData(prev => ({ ...prev, disponibilidade: newDisponibilidade }));
         }
     };

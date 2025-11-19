@@ -41,6 +41,25 @@ const parseSlotId = (id: string) => {
   return { turmaId, dia, horario };
 };
 
+// Helper to strictly sanitize availability object
+const sanitizeAvailability = (disp: any): Record<string, string[]> => {
+    const clean: Record<string, string[]> = {};
+    if (!disp || typeof disp !== 'object') return {};
+    
+    Object.keys(disp).forEach(key => {
+        const val = disp[key];
+        if (Array.isArray(val)) {
+            clean[key] = val.map(String); // Ensure items are strings
+        } else if (typeof val === 'string') {
+             // Recover stringified single values if possible
+             clean[key] = [val];
+        } else {
+             clean[key] = [];
+        }
+    });
+    return clean;
+};
+
 const sanitizeLoadedState = (loadedState: any): AppState => {
     const newState = { ...initialState, ...loadedState };
     if (typeof newState.ano !== 'number' || isNaN(newState.ano)) newState.ano = new Date().getFullYear();
@@ -57,7 +76,7 @@ const sanitizeLoadedState = (loadedState: any): AppState => {
     if (Array.isArray(newState.professores)) {
         newState.professores = newState.professores.filter(Boolean).map((prof: any) => ({
             ...prof,
-            disponibilidade: (prof && typeof prof.disponibilidade === 'object' && !Array.isArray(prof.disponibilidade)) ? prof.disponibilidade : {}
+            disponibilidade: sanitizeAvailability(prof.disponibilidade)
         }));
     }
 
@@ -232,7 +251,12 @@ const dataReducer = (state: AppState, action: DataAction): AppState => {
     }
     case 'ADD_PROFESSOR': {
          try {
-            const validated = ProfessorSchema.parse(action.payload);
+            // Force sanitization before validation to avoid "received string" errors if UI sends bad data
+            const payload = {
+                ...action.payload,
+                disponibilidade: sanitizeAvailability(action.payload.disponibilidade)
+            };
+            const validated = ProfessorSchema.parse(payload);
             const newProfessores = [...state.professores, validated];
             addChange('professores', newProfessores);
             return { ...state, professores: newProfessores };
@@ -240,7 +264,12 @@ const dataReducer = (state: AppState, action: DataAction): AppState => {
     }
     case 'UPDATE_PROFESSOR': {
          try {
-            const validated = ProfessorSchema.parse(action.payload);
+            // Force sanitization before validation
+            const payload = {
+                ...action.payload,
+                disponibilidade: sanitizeAvailability(action.payload.disponibilidade)
+            };
+            const validated = ProfessorSchema.parse(payload);
             const newProfessores = state.professores.map(p => p.id === validated.id ? validated : p);
             addChange('professores', newProfessores);
             return { ...state, professores: newProfessores };
@@ -249,7 +278,13 @@ const dataReducer = (state: AppState, action: DataAction): AppState => {
     case 'BATCH_UPDATE_PROFESSORS': {
          const newProfessores = state.professores.map(p => {
              const updated = action.payload.professors.find(up => up.id === p.id);
-             return updated || p;
+             if (updated) {
+                 return {
+                     ...updated,
+                     disponibilidade: sanitizeAvailability(updated.disponibilidade)
+                 };
+             }
+             return p;
          });
          addChange('professores', newProfessores);
          return { ...state, professores: newProfessores };

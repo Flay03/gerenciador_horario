@@ -1,3 +1,4 @@
+
 import { AppState, Curso, Disciplina, Professor, Turma, Atribuicao, Periodo } from '../types';
 
 // Helper to normalize period names from Portuguese to the app's enum
@@ -38,10 +39,15 @@ export const parseSIGHTML = (htmlString: string): Partial<AppState> => {
 
     const getOrCreateProfessor = (name: string): Professor => {
         const trimmedName = name.trim();
+        
+        // Clean availability initialization
+        const emptyDisponibilidade: Record<string, string[]> = {};
+        ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(d => emptyDisponibilidade[d] = []);
+
         if (!trimmedName) {
             // This should not happen for a valid assignment, but as a safeguard
              if (!professoresMap.has('Vago')) {
-                professoresMap.set('Vago', { id: 'p-vago', nome: 'Vago', disponibilidade: {} });
+                professoresMap.set('Vago', { id: 'p-vago', nome: 'Vago', disponibilidade: emptyDisponibilidade });
              }
              return professoresMap.get('Vago')!;
         }
@@ -49,7 +55,7 @@ export const parseSIGHTML = (htmlString: string): Partial<AppState> => {
             const newProfessor: Professor = {
                 id: generateId(trimmedName, 'p'),
                 nome: trimmedName,
-                disponibilidade: {} // Disponibilidade needs to be set manually later
+                disponibilidade: emptyDisponibilidade
             };
             professoresMap.set(trimmedName, newProfessor);
         }
