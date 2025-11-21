@@ -3,6 +3,7 @@ import { useData } from '../../context/DataContext';
 import { Turma, Periodo } from '../../types';
 import Modal from '../Modal';
 import ConfirmationModal from '../ConfirmationModal';
+import { sanitizeString } from '../../hooks/useSanitizedInput';
 
 const TurmasManager: React.FC = () => {
   const { state, dispatch } = useData();
@@ -35,10 +36,12 @@ const TurmasManager: React.FC = () => {
     e.preventDefault();
     if (!formData.nome.trim() || !formData.cursoId || !formData.periodo) return;
 
+    const cleanData = { ...formData, nome: sanitizeString(formData.nome) };
+
     if (currentTurma) {
-      dispatch({ type: 'UPDATE_TURMA', payload: { ...currentTurma, ...formData } });
+      dispatch({ type: 'UPDATE_TURMA', payload: { ...currentTurma, ...cleanData } });
     } else {
-      dispatch({ type: 'ADD_TURMA', payload: { id: `t${Date.now()}`, ...formData } });
+      dispatch({ type: 'ADD_TURMA', payload: { id: `t${Date.now()}`, ...cleanData } });
     }
     handleCloseModal();
   };
@@ -56,8 +59,6 @@ const TurmasManager: React.FC = () => {
 
   const getCursoName = (cursoId: string) => state.cursos.find(c => c.id === cursoId)?.nome || 'N/A';
   
-  const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-
   const filteredTurmas = state.turmas.filter(turma => {
     if (selectedCurso === 'all') {
       return true;

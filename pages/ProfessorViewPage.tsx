@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useData } from '../context/DataContext';
+import { useUI } from '../context/UIContext';
 import ProfessorTimetable from '../components/ProfessorView/ProfessorTimetable';
 import JSZip from 'jszip';
 import { exportProfessorTimetableToXLSX } from '../services/exportService';
@@ -7,7 +8,8 @@ import { generatePdfForProfessor } from '../services/pdfExportService';
 import ProgressBar from '../components/ProgressBar';
 
 const ProfessorViewPage: React.FC = () => {
-    const { state, dispatch } = useData();
+    const { state } = useData();
+    const { dispatch: uiDispatch } = useUI();
     const { professores, grade, turmas, disciplinas } = state;
 
     // Memoize the sorted list of professors
@@ -50,14 +52,14 @@ const ProfessorViewPage: React.FC = () => {
     const handleExportToPDF = () => {
         const professor = professores.find(p => p.id === selectedProfessorId);
         if (!professor) {
-             dispatch({ type: 'SHOW_TOAST', payload: 'Professor não selecionado.' });
+             uiDispatch({ type: 'SHOW_TOAST', payload: 'Professor não selecionado.' });
              return;
         }
 
         try {
             const { doc, error } = generatePdfForProfessor(professor, grade, turmas, disciplinas);
             if(error || !doc) {
-                dispatch({ type: 'SHOW_TOAST', payload: error || "Erro ao gerar PDF." });
+                uiDispatch({ type: 'SHOW_TOAST', payload: error || "Erro ao gerar PDF." });
                 return;
             }
             const sanitizedProfessorName = professor.nome.replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -65,24 +67,24 @@ const ProfessorViewPage: React.FC = () => {
             doc.save(filename);
         } catch (error) {
             console.error("Error generating PDF:", error);
-            dispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o PDF.' });
+            uiDispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o PDF.' });
         }
     };
 
     const handleExportProfessorXLSX = () => {
         if (!selectedProfessorId) {
-            dispatch({ type: 'SHOW_TOAST', payload: 'Professor não selecionado.' });
+            uiDispatch({ type: 'SHOW_TOAST', payload: 'Professor não selecionado.' });
             return;
         }
     
-        dispatch({ type: 'SHOW_TOAST', payload: 'Gerando arquivo XLSX...' });
+        uiDispatch({ type: 'SHOW_TOAST', payload: 'Gerando arquivo XLSX...' });
     
         setTimeout(() => {
             try {
                 const { workbook, error } = exportProfessorTimetableToXLSX(state, selectedProfessorId);
     
                 if (error || !workbook) {
-                    dispatch({ type: 'SHOW_TOAST', payload: error || 'Erro desconhecido ao gerar XLSX.' });
+                    uiDispatch({ type: 'SHOW_TOAST', payload: error || 'Erro desconhecido ao gerar XLSX.' });
                     return;
                 }
     
@@ -98,14 +100,14 @@ const ProfessorViewPage: React.FC = () => {
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
-                    dispatch({ type: 'SHOW_TOAST', payload: 'Exportação para XLSX concluída!' });
+                    uiDispatch({ type: 'SHOW_TOAST', payload: 'Exportação para XLSX concluída!' });
                 }).catch(err => {
                     console.error("Error writing XLSX buffer:", err);
-                    dispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o arquivo XLSX.' });
+                    uiDispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o arquivo XLSX.' });
                 });
             } catch(err) {
                 console.error("Error generating XLSX file:", err);
-                dispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o arquivo XLSX.' });
+                uiDispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o arquivo XLSX.' });
             }
         }, 50);
     };
@@ -115,7 +117,7 @@ const ProfessorViewPage: React.FC = () => {
         const professorsToExport = sortedProfessores.filter(p => professorIdsInGrade.includes(p.id));
 
         if (professorsToExport.length === 0) {
-            dispatch({ type: 'SHOW_TOAST', payload: 'Nenhum professor com aulas na grade para exportar.' });
+            uiDispatch({ type: 'SHOW_TOAST', payload: 'Nenhum professor com aulas na grade para exportar.' });
             return;
         }
 
@@ -123,7 +125,7 @@ const ProfessorViewPage: React.FC = () => {
         setIsBatchExporting(true);
         setExportProgress({ current: 0, total: professorsToExport.length });
 
-        dispatch({ type: 'SHOW_TOAST', payload: `Iniciando exportação de ${professorsToExport.length} horários...` });
+        uiDispatch({ type: 'SHOW_TOAST', payload: `Iniciando exportação de ${professorsToExport.length} horários...` });
         
         for (const [index, professor] of professorsToExport.entries()) {
              setExportProgress({ current: index + 1, total: professorsToExport.length });
@@ -142,7 +144,7 @@ const ProfessorViewPage: React.FC = () => {
              await new Promise(resolve => setTimeout(resolve, 0));
         }
         
-        dispatch({ type: 'SHOW_TOAST', payload: 'Gerando arquivo ZIP...' });
+        uiDispatch({ type: 'SHOW_TOAST', payload: 'Gerando arquivo ZIP...' });
         try {
             const zipBlob = await zip.generateAsync({ type: "blob" });
             const link = document.createElement("a");
@@ -152,10 +154,10 @@ const ProfessorViewPage: React.FC = () => {
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(link.href);
-            dispatch({ type: 'SHOW_TOAST', payload: 'Exportação para ZIP concluída!' });
+            uiDispatch({ type: 'SHOW_TOAST', payload: 'Exportação para ZIP concluída!' });
         } catch(error) {
             console.error("Error generating ZIP file:", error);
-            dispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o arquivo ZIP.' });
+            uiDispatch({ type: 'SHOW_TOAST', payload: 'Erro ao gerar o arquivo ZIP.' });
         } finally {
             setIsBatchExporting(false);
         }

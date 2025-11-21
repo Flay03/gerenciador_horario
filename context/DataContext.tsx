@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useReducer, useEffect, useCallback, ReactNode, useRef } from 'react';
 import { AppState, DataAction, GradeSlot, Bncc, Turma } from '../types';
 import { validateState } from '../services/validationService';
@@ -27,7 +28,7 @@ const initialState: AppState = {
 
 let history: AppState[] = [initialState];
 let historyIndex = 0;
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 20; // Reduced from 50 to save memory
 
 const parseSlotId = (id: string) => {
   if (!id || typeof id !== 'string') return { turmaId: '', dia: '', horario: '' };
@@ -392,10 +393,15 @@ const statefulReducer = (state: AppState, action: DataAction): AppState => {
        history = [nextState];
        historyIndex = 0;
     } else if (action.type !== 'SET_ALERTS') {
-       history = history.slice(0, historyIndex + 1);
-       history.push(nextState);
-       if (history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
-       historyIndex = history.length - 1;
+       // Optimization: Avoid pushing identical states to history
+       const currentStateWithoutAlerts = { ...state, alertas: [] };
+       const nextStateWithoutAlerts = { ...nextState, alertas: [] };
+       if (JSON.stringify(currentStateWithoutAlerts) !== JSON.stringify(nextStateWithoutAlerts)) {
+           history = history.slice(0, historyIndex + 1);
+           history.push(nextState);
+           if (history.length > MAX_HISTORY) history = history.slice(history.length - MAX_HISTORY);
+           historyIndex = history.length - 1;
+       }
     }
     
     return nextState;
@@ -503,6 +509,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     return () => clearTimeout(handler);
   }, [state, dispatchUI]);
+  
+  // New Effect: Warn user before unloading if there are pending changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        if (pendingChangesRef.current.size > 0 || isSavingRef.current) {
+            e.preventDefault();
+            e.returnValue = ''; // Required for Chrome
+        }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const validationDeps = JSON.stringify({
     grade: state.grade,
@@ -525,6 +544,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [validationDeps]);
 
   const handleUndoRedo = useCallback((e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+        return;
+    }
+
     if (e.ctrlKey && e.key === 'z') { e.preventDefault(); dispatch({ type: 'UNDO' }); }
     if (e.ctrlKey && e.key === 'y') { e.preventDefault(); dispatch({ type: 'REDO' }); }
   }, []);

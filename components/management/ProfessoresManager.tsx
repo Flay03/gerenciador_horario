@@ -1,10 +1,10 @@
-
 import React, { useState, useMemo, useRef, useLayoutEffect } from 'react';
 import { useData } from '../../context/DataContext';
 import { Professor } from '../../types';
 import Modal from '../Modal';
 import { DIAS_SEMANA, HORARIOS_MANHA, HORARIOS_TARDE, HORARIOS_NOITE_REGULAR } from '../../constants';
 import ConfirmationModal from '../ConfirmationModal';
+import { sanitizeString } from '../../hooks/useSanitizedInput';
 
 // --- HELPER ---
 const sanitizeDisponibilidade = (disp: any): Record<string, string[]> => {
@@ -33,6 +33,59 @@ interface AvailabilityGridProps {
   disponibilidade: Record<string, string[]>;
   onAvailabilityChange: (newDisponibilidade: Record<string, string[]>) => void;
 }
+
+const PeriodGrid: React.FC<{ label: string, horarios: string[], disponibilidade: Record<string, string[]>, onToggleSlot: (d: string, h: string) => void, onToggleDay: (d: string, h: string[]) => void, onToggleTime: (h: string) => void }> = React.memo(({ label, horarios, disponibilidade, onToggleSlot, onToggleDay, onToggleTime }) => (
+    <div className="p-4 border rounded-lg bg-gray-50/50">
+      <h3 className="text-lg font-semibold mb-3 text-gray-800">{label}</h3>
+      <div className="grid gap-px" style={{ gridTemplateColumns: 'auto repeat(6, 1fr)' }}>
+        {/* Header */}
+        <div className="font-semibold text-sm text-gray-500 px-1 py-2 text-center sticky top-0 bg-gray-50">Horário</div>
+        {DIAS_SEMANA.map(dia => (
+          <div key={dia} className="font-semibold text-sm text-gray-500 px-1 py-2 text-center capitalize sticky top-0 bg-gray-50">
+            <button 
+              type="button"
+              onClick={() => onToggleDay(dia, horarios)} 
+              className="hover:text-indigo-600 w-full"
+              title={`Marcar/desmarcar todos os horários da ${label.toLowerCase()} para ${dia}`}
+            >
+              {dia}
+            </button>
+          </div>
+        ))}
+         <div className="font-semibold text-sm text-gray-500 px-1 py-2 text-center sticky top-0 bg-gray-50">Ações</div>
+
+        {/* Rows */}
+        {horarios.map(horario => (
+          <React.Fragment key={horario}>
+            <div className="text-sm font-mono px-1 py-2 text-center flex items-center justify-center bg-white">{horario}</div>
+            {DIAS_SEMANA.map(dia => {
+              const isAvailable = disponibilidade[dia]?.includes(horario) ?? false;
+              return (
+                <div key={`${dia}-${horario}`} className="py-1 px-0.5 flex items-center justify-center bg-white">
+                  <button
+                    type="button"
+                    onClick={() => onToggleSlot(dia, horario)}
+                    className={`w-6 h-6 rounded-md transition-colors ${isAvailable ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-gray-200 hover:bg-gray-300'}`}
+                    aria-label={`Disponibilidade para ${dia} às ${horario}: ${isAvailable ? 'Disponível' : 'Indisponível'}`}
+                  />
+                </div>
+              );
+            })}
+             <div className="py-1 px-0.5 flex items-center justify-center bg-white">
+                <button 
+                    type="button"
+                    onClick={() => onToggleTime(horario)}
+                    className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold hover:bg-indigo-200 transition-colors"
+                    title={`Marcar/desmarcar ${horario} para todos os dias`}
+                >
+                    Todos
+                </button>
+             </div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  ));
 
 const AvailabilityGrid: React.FC<AvailabilityGridProps> = ({ disponibilidade, onAvailabilityChange }) => {
   
@@ -79,62 +132,11 @@ const AvailabilityGrid: React.FC<AvailabilityGridProps> = ({ disponibilidade, on
       onAvailabilityChange(newDisp);
   };
 
-  const PeriodGrid: React.FC<{ label: string, horarios: string[] }> = ({ label, horarios }) => (
-    <div className="p-4 border rounded-lg bg-gray-50/50">
-      <h3 className="text-lg font-semibold mb-3 text-gray-800">{label}</h3>
-      <div className="grid gap-px" style={{ gridTemplateColumns: 'auto repeat(6, 1fr)' }}>
-        {/* Header */}
-        <div className="font-semibold text-sm text-gray-500 px-1 py-2 text-center sticky top-0 bg-gray-50">Horário</div>
-        {DIAS_SEMANA.map(dia => (
-          <div key={dia} className="font-semibold text-sm text-gray-500 px-1 py-2 text-center capitalize sticky top-0 bg-gray-50">
-            <button 
-              onClick={() => handleDayPeriodToggle(dia, horarios)} 
-              className="hover:text-indigo-600 w-full"
-              title={`Marcar/desmarcar todos os horários da ${label.toLowerCase()} para ${dia}`}
-            >
-              {dia}
-            </button>
-          </div>
-        ))}
-         <div className="font-semibold text-sm text-gray-500 px-1 py-2 text-center sticky top-0 bg-gray-50">Ações</div>
-
-        {/* Rows */}
-        {horarios.map(horario => (
-          <React.Fragment key={horario}>
-            <div className="text-sm font-mono px-1 py-2 text-center flex items-center justify-center bg-white">{horario}</div>
-            {DIAS_SEMANA.map(dia => {
-              const isAvailable = disponibilidade[dia]?.includes(horario) ?? false;
-              return (
-                <div key={`${dia}-${horario}`} className="py-1 px-0.5 flex items-center justify-center bg-white">
-                  <button
-                    type="button"
-                    onClick={() => toggleSlotAvailability(dia, horario)}
-                    className={`w-6 h-6 rounded-md transition-colors ${isAvailable ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-gray-200 hover:bg-gray-300'}`}
-                    aria-label={`Disponibilidade para ${dia} às ${horario}: ${isAvailable ? 'Disponível' : 'Indisponível'}`}
-                  />
-                </div>
-              );
-            })}
-             <div className="py-1 px-0.5 flex items-center justify-center bg-white">
-                <button 
-                    onClick={() => handleTimeSlotToggleAllDays(horario)}
-                    className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold hover:bg-indigo-200 transition-colors"
-                    title={`Marcar/desmarcar ${horario} para todos os dias`}
-                >
-                    Todos
-                </button>
-             </div>
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
-
   return (
     <div className="space-y-4">
-      <PeriodGrid label="Manhã" horarios={HORARIOS_MANHA} />
-      <PeriodGrid label="Tarde" horarios={HORARIOS_TARDE} />
-      <PeriodGrid label="Noite" horarios={HORARIOS_NOITE_REGULAR} />
+      <PeriodGrid label="Manhã" horarios={HORARIOS_MANHA} disponibilidade={disponibilidade} onToggleSlot={toggleSlotAvailability} onToggleDay={handleDayPeriodToggle} onToggleTime={handleTimeSlotToggleAllDays} />
+      <PeriodGrid label="Tarde" horarios={HORARIOS_TARDE} disponibilidade={disponibilidade} onToggleSlot={toggleSlotAvailability} onToggleDay={handleDayPeriodToggle} onToggleTime={handleTimeSlotToggleAllDays} />
+      <PeriodGrid label="Noite" horarios={HORARIOS_NOITE_REGULAR} disponibilidade={disponibilidade} onToggleSlot={toggleSlotAvailability} onToggleDay={handleDayPeriodToggle} onToggleTime={handleTimeSlotToggleAllDays} />
     </div>
   );
 };
@@ -240,13 +242,14 @@ const ProfessoresManager: React.FC = () => {
 
         // CRÍTICO: Sanitize SEMPRE imediatamente antes de salvar
         const safeAvailability = sanitizeDisponibilidade(formData.disponibilidade);
+        const cleanName = sanitizeString(formData.nome);
 
         if (professorsToEdit.length > 0) { // Edit mode
             if (professorsToEdit.length === 1) {
-                if (!formData.nome.trim()) return;
+                if (!cleanName.trim()) return;
                 const updatedProf = {
                     ...professorsToEdit[0],
-                    nome: formData.nome,
+                    nome: cleanName,
                     disponibilidade: safeAvailability // Use a versão sanitizada
                 };
                 dispatch({ type: 'UPDATE_PROFESSOR', payload: updatedProf });
@@ -260,8 +263,8 @@ const ProfessoresManager: React.FC = () => {
             }
 
         } else { // Add mode
-            if (!formData.nome.trim()) return;
-            dispatch({ type: 'ADD_PROFESSOR', payload: { id: `p${Date.now()}`, ...formData, disponibilidade: safeAvailability } });
+            if (!cleanName.trim()) return;
+            dispatch({ type: 'ADD_PROFESSOR', payload: { id: `p${Date.now()}`, nome: cleanName, disponibilidade: safeAvailability } });
         }
         
         handleCloseModal();

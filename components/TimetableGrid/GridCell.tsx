@@ -31,10 +31,8 @@ interface GridCellProps {
   hoveredProfessorId: string | null;
   onProfessorHover: (professorId: string | null) => void;
   highlightStatus: HighlightStatus;
-  subSlotHighlightStatus: {
-      '0': HighlightStatus;
-      '1': HighlightStatus;
-  };
+  highlightStatus0: HighlightStatus;
+  highlightStatus1: HighlightStatus;
   scaledCellMinHeight: number;
   scaledCellFontSize: number;
 }
@@ -69,6 +67,14 @@ const SubCell: React.FC<SubCellProps> = React.memo(({
   const handleClick = (e: React.MouseEvent) => {
       e.stopPropagation();
       onSelectSlot(subCellId);
+  };
+  
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          onSelectSlot(subCellId);
+      }
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -109,17 +115,25 @@ const SubCell: React.FC<SubCellProps> = React.memo(({
       </ul>
     </div>
   ) : null;
+  
+  const ariaLabel = slot && disciplina && professor 
+    ? `Aula de ${disciplina.nome} com ${professor.nome}. ${alerts.length > 0 ? `Com ${alerts.length} alertas.` : ''}`
+    : 'Horário livre (metade)';
 
   return (
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={ariaLabel}
         title={slot && disciplina && professor ? `Disciplina: ${disciplina.nome}\nProfessor: ${professor.nome}` : undefined}
         draggable={!!slot}
         onDragStart={(e) => slot && onDragStart(e, slot.id)}
         onDragEnd={onDragEnd}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
         onContextMenu={handleContextMenu}
         onMouseEnter={() => { if (slot) onProfessorHover(slot.professorId); }}
-        className={`relative h-1/2 transition-all duration-150 ${bgColor} ${selectionClass} ${slot ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${isHighlighted ? 'ring-2 ring-slate-700 z-20' : ''} ${isDimmed ? 'opacity-40' : ''}`}
+        className={`relative h-1/2 transition-all duration-150 ${bgColor} ${selectionClass} ${slot ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${isHighlighted ? 'ring-2 ring-slate-700 z-20' : ''} ${isDimmed ? 'opacity-40' : ''} focus:outline-none focus:ring-2 focus:ring-indigo-500`}
       >
         <Tooltip
           content={tooltipContent}
@@ -136,7 +150,7 @@ const SubCell: React.FC<SubCellProps> = React.memo(({
 const GridCell: React.FC<GridCellProps> = ({ 
   id, gridType, turma, fullSlot, slot0, slot1, isLastInCourse, cellAlerts, subCellAlerts0, subCellAlerts1,
   onOpenContextMenu, onSelectSlot, selectedSlotId, hoveredProfessorId, onProfessorHover, 
-  highlightStatus, subSlotHighlightStatus, scaledCellMinHeight, scaledCellFontSize 
+  highlightStatus, highlightStatus0, highlightStatus1, scaledCellMinHeight, scaledCellFontSize 
 }) => {
   const { state, dispatch: dataDispatch } = useData();
   const { state: gridState, dispatch: gridDispatch } = useGrid();
@@ -164,6 +178,7 @@ const GridCell: React.FC<GridCellProps> = ({
           backgroundImage: 'repeating-linear-gradient(45deg, #d1d5db, #d1d5db 10px, #e5e7eb 10px, #e5e7eb 20px)',
         }}
         title="Horário não disponível para aulas modulares"
+        aria-hidden="true"
       />
     );
   }
@@ -318,6 +333,16 @@ const GridCell: React.FC<GridCellProps> = ({
     }
     onSelectSlot(targetId);
   }
+
+  const handleContainerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        // Logic similar to click, but defaulting to full slot or first empty subslot logic if needed
+        // For simplicity, select the main ID or slot 0 if divided context
+        onSelectSlot(id);
+    }
+  };
   
   const handleContainerContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -372,24 +397,39 @@ const GridCell: React.FC<GridCellProps> = ({
         e.stopPropagation();
         onSelectSlot(id);
     };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelectSlot(id);
+        }
+    };
     
     const selectionClass = isSelected ? 'ring-2 ring-indigo-500 z-10' : '';
     const isHighlighted = hoveredProfessorId && fullSlot.professorId === hoveredProfessorId && !isSelected;
     const isDimmed = hoveredProfessorId && fullSlot.professorId !== hoveredProfessorId;
 
+    const ariaLabel = disciplina && professor 
+        ? `Aula de ${disciplina.nome} com ${professor.nome} na turma ${turma.nome}, ${id.split('_')[2]}. ${cellAlerts.length > 0 ? `Alerta: ${cellAlerts[0].detalhes}` : ''}`
+        : `Horário ocupado na turma ${turma.nome}`;
+
     return (
       <div
+        role="button"
+        tabIndex={0}
+        aria-label={ariaLabel}
         title={disciplina && professor ? `Disciplina: ${disciplina.nome}\nProfessor: ${professor.nome}` : undefined}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
         draggable={!!fullSlot}
         onDragStart={(e) => onDragStart(e, fullSlot.id)}
         onDragEnd={onDragEnd}
         onContextMenu={(e) => { e.stopPropagation(); onOpenContextMenu(e, id); }}
         onMouseEnter={() => onProfessorHover(fullSlot.professorId)}
-        className={`relative transition-all duration-150 ${bgColor} ${selectionClass} ${fullSlot ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${borderClasses} ${isHighlighted ? 'ring-2 ring-slate-700 z-20' : ''} ${isDimmed ? 'opacity-40' : ''} ${finalBorderClass}`}
+        className={`relative transition-all duration-150 ${bgColor} ${selectionClass} ${fullSlot ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'} ${borderClasses} ${isHighlighted ? 'ring-2 ring-slate-700 z-20' : ''} ${isDimmed ? 'opacity-40' : ''} ${finalBorderClass} focus:outline-none focus:ring-2 focus:ring-indigo-500`}
         style={{ minHeight: `${scaledCellMinHeight}px` }}
       >
         <Tooltip
@@ -428,6 +468,7 @@ const GridCell: React.FC<GridCellProps> = ({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onClick={handleContainerClick}
+      onKeyDown={handleContainerKeyDown}
       onContextMenu={handleContainerContextMenu}
       className={`relative flex flex-col ${containerBg} ${selectionClass} ${borderClasses} cursor-pointer ${finalBorderClass}`}
       style={{ minHeight: `${scaledCellMinHeight}px` }}
@@ -443,7 +484,7 @@ const GridCell: React.FC<GridCellProps> = ({
           isSelected={selectedSlotId === `${id}-0`} 
           hoveredProfessorId={hoveredProfessorId} 
           onProfessorHover={onProfessorHover} 
-          highlightStatus={subSlotHighlightStatus['0'] || highlightStatus} 
+          highlightStatus={highlightStatus0 || highlightStatus} 
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           disciplina={dataSlot0.disciplina}
@@ -462,7 +503,7 @@ const GridCell: React.FC<GridCellProps> = ({
           isSelected={selectedSlotId === `${id}-1`} 
           hoveredProfessorId={hoveredProfessorId} 
           onProfessorHover={onProfessorHover} 
-          highlightStatus={subSlotHighlightStatus['1'] || highlightStatus}
+          highlightStatus={highlightStatus1 || highlightStatus}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           disciplina={dataSlot1.disciplina}

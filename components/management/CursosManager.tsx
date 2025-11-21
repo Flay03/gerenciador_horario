@@ -3,6 +3,7 @@ import { useData } from '../../context/DataContext';
 import { Curso } from '../../types';
 import Modal from '../Modal';
 import ConfirmationModal from '../ConfirmationModal';
+import { sanitizeString } from '../../hooks/useSanitizedInput';
 
 const CursosManager: React.FC = () => {
   const { state, dispatch } = useData();
@@ -27,10 +28,12 @@ const CursosManager: React.FC = () => {
     e.preventDefault();
     if (!cursoName.trim()) return;
 
+    const cleanName = sanitizeString(cursoName);
+
     if (currentCurso) {
-      dispatch({ type: 'UPDATE_CURSO', payload: { ...currentCurso, nome: cursoName } });
+      dispatch({ type: 'UPDATE_CURSO', payload: { ...currentCurso, nome: cleanName } });
     } else {
-      dispatch({ type: 'ADD_CURSO', payload: { id: `c${Date.now()}`, nome: cursoName } });
+      dispatch({ type: 'ADD_CURSO', payload: { id: `c${Date.now()}`, nome: cleanName } });
     }
     handleCloseModal();
   };

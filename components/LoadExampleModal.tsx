@@ -1,5 +1,6 @@
 import React from 'react';
 import { useData } from '../context/DataContext';
+import { useUI } from '../context/UIContext';
 import Modal from './Modal';
 
 interface LoadExampleModalProps {
@@ -9,6 +10,7 @@ interface LoadExampleModalProps {
 
 const LoadExampleModal: React.FC<LoadExampleModalProps> = ({ isOpen, onClose }) => {
   const { dispatch } = useData();
+  const { dispatch: uiDispatch } = useUI();
 
   const handleLoadExample = async () => {
     try {
@@ -20,13 +22,13 @@ const LoadExampleModal: React.FC<LoadExampleModalProps> = ({ isOpen, onClose }) 
       
       if (data && data.version && Array.isArray(data.cursos)) {
         dispatch({ type: 'SET_STATE', payload: data });
-        dispatch({ type: 'SHOW_TOAST', payload: 'Dados de exemplo carregados com sucesso!' });
+        uiDispatch({ type: 'SHOW_TOAST', payload: 'Dados de exemplo carregados com sucesso!' });
       } else {
         throw new Error('Arquivo de exemplo inválido.');
       }
     } catch (error) {
       console.error("Erro ao carregar dados de exemplo:", error);
-      dispatch({ type: 'SHOW_TOAST', payload: 'Falha ao carregar dados de exemplo.' });
+      uiDispatch({ type: 'SHOW_TOAST', payload: 'Falha ao carregar dados de exemplo.' });
     } finally {
       onClose();
     }

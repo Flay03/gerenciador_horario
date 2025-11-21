@@ -4,6 +4,7 @@ import { Disciplina } from '../../types';
 import Modal from '../Modal';
 import ConfirmationModal from '../ConfirmationModal';
 import BnccManagerModal from './BnccManagerModal';
+import { sanitizeString } from '../../hooks/useSanitizedInput';
 
 const DisciplinasManager: React.FC = () => {
   const { state, dispatch } = useData();
@@ -52,12 +53,16 @@ const DisciplinasManager: React.FC = () => {
     e.preventDefault();
     if (!formData.nome.trim() || !formData.turmaId) return;
     
-    const finalData = { ...formData, numProfessores: formData.divisao ? formData.numProfessores : 1 };
+    const cleanData = { 
+        ...formData, 
+        nome: sanitizeString(formData.nome),
+        numProfessores: formData.divisao ? formData.numProfessores : 1 
+    };
 
     if (currentDisciplina) {
-      dispatch({ type: 'UPDATE_DISCIPLINA', payload: { ...currentDisciplina, ...finalData } });
+      dispatch({ type: 'UPDATE_DISCIPLINA', payload: { ...currentDisciplina, ...cleanData } });
     } else {
-      dispatch({ type: 'ADD_DISCIPLINA', payload: { id: `d${Date.now()}`, ...finalData } });
+      dispatch({ type: 'ADD_DISCIPLINA', payload: { id: `d${Date.now()}`, ...cleanData } });
     }
     handleCloseModal();
   };

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useData } from '../../context/DataContext';
 import { useGrid } from '../../context/GridContext';
@@ -73,6 +74,8 @@ interface TimetableGridProps {
   isFocusModeEnabled: boolean;
   gridType: GridType;
 }
+
+const EMPTY_ALERTS: Alerta[] = [];
 
 const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridType }) => {
   const { state: dataState, dispatch: dataDispatch } = useData();
@@ -193,7 +196,11 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
   };
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.target !== document.body) return;
+    // Allow shortcuts if the focus is NOT on a form input
+    const target = e.target as HTMLElement;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+        return;
+    }
     
     if (selectedSlotId) {
       if (e.ctrlKey) {
@@ -493,7 +500,16 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
                     let isHardFail = false;
                     let isWarning = false;
 
-                    if (!sourceProfessor.disponibilidade[dia]?.includes(horario)) {
+                    // Check period mismatch
+                    let currentSlotPeriod: 'manha' | 'tarde' | 'noite' = 'noite';
+                    if (HORARIOS_MANHA.includes(horario)) currentSlotPeriod = 'manha';
+                    else if (HORARIOS_TARDE.includes(horario)) currentSlotPeriod = 'tarde';
+
+                    if (turma.periodo !== currentSlotPeriod) {
+                        isHardFail = true;
+                    }
+
+                    if (!isHardFail && !sourceProfessor.disponibilidade[dia]?.includes(horario)) {
                         isWarning = true;
                     }
 
@@ -669,13 +685,11 @@ const TimetableGrid: React.FC<TimetableGridProps> = ({ isFocusModeEnabled, gridT
                                 hoveredProfessorId={isFocusModeEnabled ? hoveredProfessorId : null}
                                 onProfessorHover={isFocusModeEnabled ? handleProfessorHover : noOp}
                                 highlightStatus={validMoveHighlights[id] || null}
-                                cellAlerts={cellAlertsMap.get(id) || []}
-                                subCellAlerts0={cellAlertsMap.get(`${id}-0`) || []}
-                                subCellAlerts1={cellAlertsMap.get(`${id}-1`) || []}
-                                subSlotHighlightStatus={{
-                                    '0': validMoveHighlights[`${id}-0`] || null,
-                                    '1': validMoveHighlights[`${id}-1`] || null,
-                                }}
+                                cellAlerts={cellAlertsMap.get(id) || EMPTY_ALERTS}
+                                subCellAlerts0={cellAlertsMap.get(`${id}-0`) || EMPTY_ALERTS}
+                                subCellAlerts1={cellAlertsMap.get(`${id}-1`) || EMPTY_ALERTS}
+                                highlightStatus0={validMoveHighlights[`${id}-0`] || null}
+                                highlightStatus1={validMoveHighlights[`${id}-1`] || null}
                                 scaledCellMinHeight={scaledDimensions.cellMinHeight}
                                 scaledCellFontSize={scaledDimensions.fontSizeCell}
                                 />;
