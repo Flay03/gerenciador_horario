@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Verifica se o usuário está autenticado no Firebase Auth
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Verifica se o email do usuário existe como um documento na coleção 'allowed_users'
+    function isAllowed() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/allowed_users/$(request.auth.token.email));
+    }
+
+    // Regras para a coleção de horários (timetables)
+    match /timetables/{timetableId} {
+      // Permite leitura e escrita apenas se o usuário estiver na lista de permitidos
+      allow read, write: if isAllowed();
+    }
+
+    // Regras para a coleção de usuários permitidos (allowed_users)
+    match /allowed_users/{email} {
+      // O usuário só pode ler o documento que corresponde ao seu próprio email
+      // para verificar se tem acesso. Ninguém pode escrever via Client SDK (apenas via Console/Admin).
+      allow read: if isAuthenticated() && request.auth.token.email == email;
+    }
+  }
+}
